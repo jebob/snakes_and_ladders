@@ -84,7 +84,7 @@ impl Sim {
 
     fn roll(&mut self) -> RollResult {
         // Roll the die once and resolve the consequences
-        let die_value = self.rng.gen_range(1, DIE_SIZE);
+        let die_value = self.rng.gen_range(1, DIE_SIZE + 1);
         self.roll_resolve(die_value)
     }
 
