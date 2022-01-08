@@ -1,43 +1,8 @@
-use rand::rngs::ThreadRng;
-use rand::Rng;
+mod dice;
+
+use crate::dice::{Rollable, DIE_SIZE};
 use std::cmp::max;
 use std::collections::HashMap;
-
-const DIE_SIZE: usize = 6; // Must be >= 1
-
-trait Rollable {
-    // Either a random die or a mock.
-    fn roll(&mut self) -> usize;
-}
-
-impl Rollable for ThreadRng {
-    fn roll(&mut self) -> usize {
-        self.gen_range(1, DIE_SIZE + 1)
-    }
-}
-
-struct Unrollable {} // Fallback class, used for testing only
-
-impl Rollable for Unrollable {
-    fn roll(&mut self) -> usize {
-        panic!("Can't roll this!")
-    }
-}
-
-struct MockDie<T: Rollable> {
-    // gives some predetermined results, then uses the fallback
-    queued_results: Vec<usize>, // Popped RIGHT to LEFT!!
-    fallback: T,
-}
-
-impl<T: Rollable> Rollable for MockDie<T> {
-    fn roll(&mut self) -> usize {
-        match self.queued_results.pop() {
-            Some(val) => val,
-            None => self.fallback.roll(),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 struct Board {
@@ -191,6 +156,7 @@ impl<T: Rollable> Sim<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dice::{Unrollable, MockDie};
 
     fn blank_board(size: usize) -> Board {
         Board {
@@ -241,7 +207,6 @@ mod tests {
         let b = get_canon_board();
         let rng = MockDie {
             queued_results: vec![2, 6, 5, 1, 2, 6, 4],
-            fallback: Unrollable {},
         };
         let mut sim = Sim::new(b, rng);
         sim.run();
@@ -266,7 +231,6 @@ mod tests {
         };
         let rng = MockDie {
             queued_results: vec![3, 6],
-            fallback: Unrollable {},
         };
         let mut sim = Sim::new(b, rng);
         sim.position = 93; // Override position
