@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_roll() {
         // Check can move forwards
-        let mut sim = Sim::new(blank_board(20), Unrollable{});
+        let mut sim = Sim::new(blank_board(20), Unrollable {});
         assert_eq!(sim.position, 0);
         sim.roll_resolve(5);
         assert_eq!(sim.position, 5);
@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn test_random_roll() {
         // Check can generate a random move
-        // Make a big enough board
         let max_rolls = 10; // 10 times is good enough
+        // Make a big enough board
         let board = blank_board(max_rolls * DIE_SIZE);
         let mut sim = Sim::new(board.clone(), rand::thread_rng());
         for _ in 0..max_rolls {
@@ -187,6 +187,22 @@ mod tests {
             assert!(result.die_value <= DIE_SIZE, "{}", result.die_value);
             assert_eq!(sim.position, old_position + result.die_value);
         }
+    }
+
+    #[test]
+    fn test_canon_board_speedrun() {
+        // More fun than useful!
+        // Can probably be deleted if the canon_board changes
+        let b = get_canon_board();
+        let rng = MockDie {
+            queued_results: vec![2, 6, 5, 1, 2, 6, 4],
+            fallback: Unrollable {},
+        };
+        let mut sim = Sim::new(b, rng);
+        sim.run();
+        assert_eq!(sim.roll_count, 7);
+        assert_eq!(sim.turn_count, 5);
+        assert!(sim.has_won());
     }
 }
 
