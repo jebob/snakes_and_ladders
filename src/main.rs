@@ -222,8 +222,7 @@ mod tests {
     fn test_random_roll() {
         // Check can generate a random move
         let max_rolls = 10; // 10 times is good enough
-        // Make a big enough board
-        let board = blank_board(max_rolls * DIE_SIZE);
+        let board = blank_board(max_rolls * DIE_SIZE); // Make a big enough board
         let mut sim = Sim::new(board.clone(), rand::thread_rng());
         for _ in 0..max_rolls {
             let old_position = sim.position;
