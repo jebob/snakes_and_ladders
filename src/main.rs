@@ -7,13 +7,31 @@ const DIE_SIZE: usize = 6; // Must be >= 1
 #[derive(Debug, Clone)]
 struct Board {
     size: usize,
-    routes: HashMap<usize, usize>,
+    routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
 }
 
 fn get_canon_board() -> Board {
     Board {
         size: 100,
-        routes: HashMap::from([]), // comment
+        routes: HashMap::from([
+            // snakes go down
+            (27, 5),
+            (40, 3),
+            (43, 18),
+            (54, 31),
+            (66, 45),
+            (76, 58),
+            (89, 53),
+            (99, 41),
+            // ladders go up
+            (4, 25),
+            (13, 46),
+            (33, 49),
+            (42, 63),
+            (50, 69),
+            (62, 81),
+            (74, 92),
+        ]),
     }
 }
 
