@@ -1,4 +1,3 @@
-use rand;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 use std::collections::HashMap;
@@ -38,7 +37,7 @@ impl Sim {
     }
 
     fn has_won(&self) -> bool {
-        return self.position == self.board.size;
+        self.position == self.board.size
     }
 
     fn run(&mut self) {
@@ -62,7 +61,7 @@ impl Sim {
     fn roll(&mut self) -> RollResult {
         // Roll the die once and resolve the consequences
         let die_value = self.rng.gen_range(1, DIE_SIZE);
-        return self.roll_resolve(die_value);
+        self.roll_resolve(die_value)
     }
 
     fn roll_resolve(&mut self, die_value: usize) -> RollResult {
@@ -75,15 +74,12 @@ impl Sim {
 
         // Try to follow any routes (snake or ladder)
         // Note, in the version of the game from my childhood, snakes can chain!
-        loop {
-            match self.board.routes.get(&new_position) {
-                Some(p) => new_position = *p,
-                None => break,
-            }
+        while let Some(p) = self.board.routes.get(&new_position) {
+            new_position = *p
         }
 
         self.position = new_position;
-        return RollResult { die_value };
+        RollResult { die_value }
     }
 }
 
