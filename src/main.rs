@@ -4,6 +4,40 @@ use std::collections::HashMap;
 
 const DIE_SIZE: usize = 6; // Must be >= 1
 
+trait Rollable {
+    // Either a random die or a mock.
+    fn roll(&mut self) -> usize;
+}
+
+impl Rollable for ThreadRng {
+    fn roll(&mut self) -> usize {
+        self.gen_range(1, DIE_SIZE + 1)
+    }
+}
+
+struct Unrollable {} // Fallback class, used for testing only
+
+impl Rollable for Unrollable {
+    fn roll(&mut self) -> usize {
+        panic!("Can't roll this!")
+    }
+}
+
+struct MockDie<T: Rollable> {
+    // gives some predetermined results, then uses the fallback
+    queued_results: Vec<usize>,
+    fallback: T,
+}
+
+impl<T: Rollable> Rollable for MockDie<T> {
+    fn roll(&mut self) -> usize {
+        match self.queued_results.pop() {
+            Some(val) => val,
+            None => self.fallback.roll(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Board {
     size: usize,
