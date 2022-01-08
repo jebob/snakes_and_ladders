@@ -1,5 +1,6 @@
 use rand::rngs::ThreadRng;
 use rand::Rng;
+use std::cmp::max;
 use std::collections::HashMap;
 
 const DIE_SIZE: usize = 6; // Must be >= 1
@@ -76,10 +77,18 @@ struct Sim<T: Rollable> {
     // stats
     turn_count: usize,
     roll_count: usize,
+    climb_count: usize,
+    slide_count: usize,
+    climb_distance: usize,
+    slide_distance: usize,
+    biggest_climb: usize,
+    biggest_slide: usize,
 }
 
 struct RollResult {
     die_value: usize,
+    climb_distance: usize,
+    slide_distance: usize,
 }
 
 impl<T: Rollable> Sim<T> {
@@ -90,6 +99,12 @@ impl<T: Rollable> Sim<T> {
             rng,
             turn_count: 0,
             roll_count: 0,
+            climb_count: 0,
+            slide_count: 0,
+            climb_distance: 0,
+            slide_distance: 0,
+            biggest_climb: 0,
+            biggest_slide: 0,
         }
     }
 
@@ -108,12 +123,19 @@ impl<T: Rollable> Sim<T> {
     fn turn(&mut self) {
         // Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
         self.turn_count += 1;
+        let mut turn_climb = 0;
+        let mut turn_slide = 0;
         while !self.has_won() {
             let result = self.roll();
+            turn_climb += result.climb_distance;
+            turn_slide += result.slide_distance;
             if result.die_value < DIE_SIZE {
                 break;
             };
         }
+        // Store turn stats
+        self.biggest_climb = max(self.biggest_climb, turn_climb);
+        self.biggest_slide = max(self.biggest_slide, turn_slide);
     }
 
     fn roll(&mut self) -> RollResult {
@@ -125,20 +147,44 @@ impl<T: Rollable> Sim<T> {
     fn roll_resolve(&mut self, die_value: usize) -> RollResult {
         // Try to move forwards some spaces
         self.roll_count += 1;
+        // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
+        let mut climb_distance = 0;
+        let mut slide_distance = 0;
         let mut new_position = self.position + die_value;
         if new_position > self.board.size {
             // Illegal move!
-            return RollResult { die_value };
+            return RollResult {
+                die_value,
+                climb_distance,
+                slide_distance,
+            };
         }
 
         // Try to follow any routes (snake or ladder)
         // Note, in the version of the game from my childhood, snakes can chain!
         while let Some(p) = self.board.routes.get(&new_position) {
+            if *p > new_position {
+                // ladder
+                let delta = *p - new_position;
+                self.climb_count += 1;
+                climb_distance += delta;
+                self.climb_distance += delta;
+            } else {
+                // snake
+                let delta = new_position - *p;
+                self.slide_count += 1;
+                slide_distance += delta; // flip sign
+                self.slide_distance += delta;
+            }
             new_position = *p
         }
 
         self.position = new_position;
-        RollResult { die_value }
+        RollResult {
+            die_value,
+            climb_distance,
+            slide_distance,
+        }
     }
 }
 
@@ -202,7 +248,39 @@ mod tests {
         sim.run();
         assert_eq!(sim.roll_count, 7);
         assert_eq!(sim.turn_count, 5);
+        assert_eq!(sim.climb_count, 4);
+        assert_eq!(sim.slide_count, 0);
+        assert_eq!(sim.climb_distance, 74);
+        assert_eq!(sim.slide_distance, 0);
+        assert_eq!(sim.biggest_climb, 21);
+        assert_eq!(sim.biggest_slide, 0);
         assert!(sim.has_won());
+    }
+
+    #[test]
+    fn test_chained_slides() {
+        // Take one step forwards and fall down a chain of snakes
+        // then re-roll and go down another snake
+        let b = Board {
+            size: 100,
+            routes: HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]),
+        };
+        let rng = MockDie {
+            queued_results: vec![3, 6],
+            fallback: Unrollable {},
+        };
+        let mut sim = Sim::new(b, rng);
+        sim.position = 93; // Override position
+        sim.turn();
+        assert_eq!(sim.roll_count, 2);
+        assert_eq!(sim.turn_count, 1);
+        assert_eq!(sim.climb_count, 0);
+        assert_eq!(sim.slide_count, 4);
+        assert_eq!(sim.climb_distance, 0);
+        assert_eq!(sim.slide_distance, 101);
+        assert_eq!(sim.biggest_climb, 0);
+        assert_eq!(sim.biggest_slide, 101);
+        assert!(!sim.has_won());
     }
 }
 
