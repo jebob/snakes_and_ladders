@@ -25,7 +25,7 @@ impl Rollable for Unrollable {
 
 struct MockDie<T: Rollable> {
     // gives some predetermined results, then uses the fallback
-    queued_results: Vec<usize>,
+    queued_results: Vec<usize>, // Popped RIGHT to LEFT!!
     fallback: T,
 }
 
@@ -69,10 +69,10 @@ fn get_canon_board() -> Board {
     }
 }
 
-struct Sim {
+struct Sim<T: Rollable> {
     board: Board,
     position: usize,
-    rng: ThreadRng,
+    rng: T,
     // stats
     turn_count: usize,
     roll_count: usize,
@@ -82,12 +82,12 @@ struct RollResult {
     die_value: usize,
 }
 
-impl Sim {
-    fn new(board: Board) -> Sim {
+impl<T: Rollable> Sim<T> {
+    fn new(board: Board, rng: T) -> Sim<T> {
         Sim {
             board,
             position: 0,
-            rng: rand::thread_rng(),
+            rng,
             turn_count: 0,
             roll_count: 0,
         }
@@ -118,7 +118,7 @@ impl Sim {
 
     fn roll(&mut self) -> RollResult {
         // Roll the die once and resolve the consequences
-        let die_value = self.rng.gen_range(1, DIE_SIZE + 1);
+        let die_value = self.rng.roll();
         self.roll_resolve(die_value)
     }
 
@@ -145,7 +145,6 @@ impl Sim {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp::max;
 
     fn blank_board(size: usize) -> Board {
         Board {
@@ -157,7 +156,7 @@ mod tests {
     #[test]
     fn test_roll() {
         // Check can move forwards
-        let mut sim = Sim::new(blank_board(20));
+        let mut sim = Sim::new(blank_board(20), Unrollable{});
         assert_eq!(sim.position, 0);
         sim.roll_resolve(5);
         assert_eq!(sim.position, 5);
@@ -179,7 +178,7 @@ mod tests {
         // Make a big enough board
         let max_rolls = 10; // 10 times is good enough
         let board = blank_board(max_rolls * DIE_SIZE);
-        let mut sim = Sim::new(board.clone());
+        let mut sim = Sim::new(board.clone(), rand::thread_rng());
         for _ in 0..max_rolls {
             let old_position = sim.position;
             let result = sim.roll();
@@ -193,7 +192,7 @@ mod tests {
 
 fn main() {
     let b = get_canon_board();
-    let mut sim = Sim::new(b);
+    let mut sim = Sim::new(b, rand::thread_rng());
     sim.run();
     println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
 }
