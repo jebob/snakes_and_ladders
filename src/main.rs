@@ -39,6 +39,9 @@ struct Sim {
     board: Board,
     position: usize,
     rng: ThreadRng,
+    // stats
+    turn_count: usize,
+    roll_count: usize,
 }
 
 struct RollResult {
@@ -51,6 +54,8 @@ impl Sim {
             board,
             position: 0,
             rng: rand::thread_rng(),
+            turn_count: 0,
+            roll_count: 0,
         }
     }
 
@@ -68,6 +73,7 @@ impl Sim {
 
     fn turn(&mut self) {
         // Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
+        self.turn_count += 1;
         while !self.has_won() {
             let result = self.roll();
             if result.die_value < DIE_SIZE {
@@ -84,6 +90,7 @@ impl Sim {
 
     fn roll_resolve(&mut self, die_value: usize) -> RollResult {
         // Try to move forwards some spaces
+        self.roll_count += 1;
         let mut new_position = self.position + die_value;
         if new_position > self.board.size {
             // Illegal move!
@@ -154,5 +161,5 @@ fn main() {
     let b = get_canon_board();
     let mut sim = Sim::new(b);
     sim.run();
-    println!("Hello, world!");
+    println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
 }
