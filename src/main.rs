@@ -1,6 +1,7 @@
 mod dice;
 
 use crate::dice::{Rollable, DIE_SIZE};
+use rand::rngs::ThreadRng;
 use std::cmp::max;
 use std::collections::HashMap;
 
@@ -154,9 +155,9 @@ impl<T: Rollable> Sim<T> {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_sim {
     use super::*;
-    use crate::dice::{Unrollable, MockDie};
+    use crate::dice::{MockDie, Unrollable};
 
     fn blank_board(size: usize) -> Board {
         Board {
@@ -247,6 +248,31 @@ mod tests {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Debug)]
+struct MultiSimResult {
+    min_rolls: usize,
+    avg_rolls: f64,
+    max_rolls: usize,
+    min_climbs: usize, // Total distance, events or rolls?
+    avg_climbs: f64,
+    max_climbs: usize,
+    min_slides: usize,
+    avg_slides: f64,
+    max_slides: usize,
+    biggest_turn_climb: usize, // Greatest climb in a single turn, INCLUDING re-rolls and chains
+    biggest_turn_slide: usize, // Greatest slide in a single turn, INCLUDING re-rolls and chains
+                               /* //todo
+                               longest_turn: vec<usize>,
+                               min_lucky_rolls: usize,
+                               avg_lucky_rolls: f64,
+                               max_lucky_rolls: usize,
+                               min_unlucky_rolls: usize,
+                               avg_unlucky_rolls: f64,
+                               max_unlucky_rolls: usize,
+                                */
+}
+
 fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
     if sequence.is_empty() {
         None
@@ -270,9 +296,38 @@ mod tests_stats {
         assert_eq!(min_avg_max(vec![1, 2, 3]).unwrap(), (1, 2.0, 3));
     }
 }
+
+fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
+    let mut sims: Vec<Sim<ThreadRng>> = vec![];
+    for _ in 0..count {
+        let mut sim = Sim::new(board.clone(), rand::thread_rng());
+        sim.run();
+        //println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
+        sims.push(sim);
+    }
+    let (min_rolls, avg_rolls, max_rolls) =
+        min_avg_max(sims.iter().map(|s| s.roll_count).collect()).unwrap();
+    let (min_climbs, avg_climbs, max_climbs) =
+        min_avg_max(sims.iter().map(|s| s.climb_count).collect()).unwrap();
+    let (min_slides, avg_slides, max_slides) =
+        min_avg_max(sims.iter().map(|s| s.slide_count).collect()).unwrap();
+    MultiSimResult {
+        min_rolls,
+        avg_rolls,
+        max_rolls,
+        min_climbs,
+        avg_climbs,
+        max_climbs,
+        min_slides,
+        avg_slides,
+        max_slides,
+        biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
+        biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
+    }
+}
+
 fn main() {
     let b = get_canon_board();
-    let mut sim = Sim::new(b, rand::thread_rng());
-    sim.run();
-    println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
+    let results = run_sim_batch(b, 1000);
+    print!("{:?}", results)
 }
