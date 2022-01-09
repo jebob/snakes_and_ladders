@@ -247,6 +247,29 @@ mod tests {
     }
 }
 
+fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
+    if sequence.is_empty() {
+        None
+    } else {
+        Some((
+            *sequence.iter().min().unwrap(),
+            sequence.iter().sum::<usize>() as f64 / sequence.len() as f64,
+            *sequence.iter().max().unwrap(),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests_stats {
+    use super::*;
+    #[test]
+    fn test_min_max_average() {
+        assert!(min_avg_max(vec![]).is_none());
+        assert_eq!(min_avg_max(vec![5]).unwrap(), (5, 5.0, 5));
+        assert_eq!(min_avg_max(vec![8, 0, 3]).unwrap(), (0, 11.0 / 3.0, 8));
+        assert_eq!(min_avg_max(vec![1, 2, 3]).unwrap(), (1, 2.0, 3));
+    }
+}
 fn main() {
     let b = get_canon_board();
     let mut sim = Sim::new(b, rand::thread_rng());
