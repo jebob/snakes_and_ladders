@@ -1,5 +1,5 @@
 [package]
-name = "snakes_and_ladders2"
+name = "snakes_and_ladders"
 version = "0.1.0"
 edition = "2021"
 

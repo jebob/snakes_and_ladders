@@ -34,10 +34,10 @@ impl Board {
             }
             // Check for snake near-miss
             for delta in [-2, -1, 1, 2] {
-                let other_i = i as i32 + delta;
+                let other_i = i as isize + delta;
                 if other_i <= 0 {
-                    continue;
-                } // handle underflow
+                    continue; // Underflow, so ignore
+                }
                 let other_i = other_i as usize;
                 let route_outcome = *routes.get(&other_i).unwrap_or(&other_i);
                 if route_outcome < other_i {
@@ -56,32 +56,6 @@ impl Board {
             unlucky_spaces,
         }
     }
-}
-
-#[allow(dead_code)]
-fn get_canon_board() -> Board {
-    Board::new(
-        100,
-        HashMap::from([
-            // snakes go down
-            (27, 5),
-            (40, 3),
-            (43, 18),
-            (54, 31),
-            (66, 45),
-            (76, 58),
-            (89, 53),
-            (99, 41),
-            // ladders go up
-            (4, 25),
-            (13, 46),
-            (33, 49),
-            (42, 63),
-            (50, 69),
-            (62, 81),
-            (74, 92),
-        ]),
-    )
 }
 
 #[derive(Debug)]
@@ -134,7 +108,7 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
         if to > v.size {
             return Err(Box::new(BadRoute(format!(
                 "Illegal snake/ladder end position: {}",
-                from
+                to
             ))));
         }
         if from == to {
@@ -299,6 +273,31 @@ mod tests_sim {
 
     fn blank_board(size: usize) -> Board {
         Board::new(size, HashMap::new())
+    }
+
+    fn get_canon_board() -> Board {
+        Board::new(
+            100,
+            HashMap::from([
+                // snakes go down
+                (27, 5),
+                (40, 3),
+                (43, 18),
+                (54, 31),
+                (66, 45),
+                (76, 58),
+                (89, 53),
+                (99, 41),
+                // ladders go up
+                (4, 25),
+                (13, 46),
+                (33, 49),
+                (42, 63),
+                (50, 69),
+                (62, 81),
+                (74, 92),
+            ]),
+        )
     }
 
     #[test]
@@ -486,7 +485,6 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
 }
 
 fn main() {
-    //let b = get_canon_board();
     let (b, max_ites) = load_cfg("config.json").unwrap();
     println!("Loaded board");
     let results = run_sim_batch(b, max_ites);
