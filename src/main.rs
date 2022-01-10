@@ -3,18 +3,62 @@ mod dice;
 use crate::dice::{Rollable, DIE_SIZE};
 use rand::rngs::ThreadRng;
 use std::cmp::{max, Ordering};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 struct Board {
     size: usize,
     routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
+    lucky_spaces: HashSet<usize>,
+    unlucky_spaces: HashSet<usize>,
+}
+
+impl Board {
+    fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
+        // Pre-calculate (un)lucky spaces
+        let mut lucky_spaces: HashSet<usize> = HashSet::new();
+        let mut unlucky_spaces: HashSet<usize> = HashSet::new();
+        for i in 0..size {
+            // lucky or unlucky if ladder or snake.
+            match routes.get(&i).unwrap_or(&i).cmp(&i) {
+                Ordering::Greater => {
+                    lucky_spaces.insert(i);
+                }
+                Ordering::Less => {
+                    unlucky_spaces.insert(i);
+                }
+                Ordering::Equal => {}
+            }
+            // Check for snake near-miss
+            for delta in [-2, -1, 1, 2] {
+                let other_i = i as i32 + delta;
+                if other_i <= 0 {
+                    continue;
+                } // handle underflow
+                let other_i = other_i as usize;
+                let route_outcome = *routes.get(&other_i).unwrap_or(&other_i);
+                if route_outcome < other_i {
+                    // Rolled onto a position that was next to a snake leading downwards
+                    lucky_spaces.insert(i);
+                    break;
+                }
+            }
+        }
+        // Finally, the winning space is lucky
+        lucky_spaces.insert(size);
+        Board {
+            size,
+            routes,
+            lucky_spaces,
+            unlucky_spaces,
+        }
+    }
 }
 
 fn get_canon_board() -> Board {
-    Board {
-        size: 100,
-        routes: HashMap::from([
+    Board::new(
+        100,
+        HashMap::from([
             // snakes go down
             (27, 5),
             (40, 3),
@@ -33,7 +77,7 @@ fn get_canon_board() -> Board {
             (62, 81),
             (74, 92),
         ]),
-    }
+    )
 }
 
 struct Sim<T: Rollable> {
@@ -130,8 +174,6 @@ impl<T: Rollable> Sim<T> {
             };
         }
 
-        let mut lucky = false;
-        let mut unlucky = false;
         // Try to follow any routes (snake or ladder)
         // Note, in the version of the game from my childhood, snakes can chain!
         let mut slid_position = rolled_position;
@@ -151,39 +193,14 @@ impl<T: Rollable> Sim<T> {
             }
             slid_position = *p
         }
-        match slid_position.cmp(&rolled_position) {
-            // Consider net effect of routes
-            Ordering::Greater => lucky = true,
-            Ordering::Less => unlucky = true,
-            Ordering::Equal => {}
-        };
-        // Check for snake near-miss
-        for delta in [-2, -1, 1, 2] {
-            let alt_position = rolled_position as i32 + delta;
-            if alt_position <= 0 {
-                continue;
-            } // handle underflow
-            let alt_position = alt_position as usize;
-            let slid_postion2 = *self
-                .board
-                .routes
-                .get(&alt_position)
-                .unwrap_or(&alt_position);
-            if slid_postion2 < rolled_position {
-                // Rolled onto a position that was next to a snake leading downwards
-                lucky = true;
-                break
-            }
-        }
         self.position = slid_position;
-        if self.has_won() {
-            lucky = true;
-        } // Winning move, so lucky
-        if unlucky {
+
+        // (un)Lucky if landing on an (un)lucky space
+        if self.board.unlucky_spaces.contains(&rolled_position) {
             // Note "unlucky" trumps lucky.
             // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
             self.unlucky_rolls += 1
-        } else if lucky {
+        } else if self.board.lucky_spaces.contains(&rolled_position) {
             self.lucky_rolls += 1
         }
         RollResult {
@@ -200,10 +217,7 @@ mod tests_sim {
     use crate::dice::{MockDie, Unrollable};
 
     fn blank_board(size: usize) -> Board {
-        Board {
-            size,
-            routes: HashMap::new(),
-        }
+        Board::new(size, HashMap::new())
     }
 
     #[test]
@@ -240,6 +254,19 @@ mod tests_sim {
             assert_eq!(sim.position, old_position + result.die_value);
         }
     }
+    #[test]
+    fn test_lucky_spaces() {
+        let board = Board::new(20, HashMap::from([(5, 8), (14, 2)]));
+        assert_eq!(
+            board.lucky_spaces,
+            HashSet::from([
+                5, // Ladders up
+                12, 13, 15, 16, // near a snake
+                20  // Winning square
+            ])
+        );
+        assert_eq!(board.unlucky_spaces, HashSet::from([14]));
+    }
 
     #[test]
     fn test_canon_board_speedrun() {
@@ -263,29 +290,12 @@ mod tests_sim {
         assert_eq!(sim.unlucky_rolls, 0);
         assert!(sim.has_won());
     }
-    #[test]
-    fn test_luck() {
-        // More fun than useful!
-        // Can probably be deleted if the canon_board changes
-        let b = get_canon_board();
-        let rng = MockDie {
-            queued_results: vec![6, 4],
-        };
-        let mut sim = Sim::new(b, rng);
-        sim.roll();
-        sim.roll();
-        assert_eq!(sim.lucky_rolls, 1);
-        assert_eq!(sim.unlucky_rolls, 0);
-    }
 
     #[test]
     fn test_chained_slides() {
         // Take one step forwards and fall down a chain of snakes
         // then re-roll and go down another snake
-        let b = Board {
-            size: 100,
-            routes: HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]),
-        };
+        let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]));
         let rng = MockDie {
             queued_results: vec![3, 6],
         };
