@@ -1,9 +1,12 @@
 mod dice;
 
 use crate::dice::{Rollable, DIE_SIZE};
+use crate::BadRouteError::BadRoute;
 use rand::rngs::ThreadRng;
+use serde::{Deserialize, Serialize};
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet};
+use std::{fmt, fs};
 
 #[derive(Debug, Clone)]
 struct Board {
@@ -55,6 +58,7 @@ impl Board {
     }
 }
 
+#[allow(dead_code)]
 fn get_canon_board() -> Board {
     Board::new(
         100,
@@ -78,6 +82,75 @@ fn get_canon_board() -> Board {
             (74, 92),
         ]),
     )
+}
+
+#[derive(Debug)]
+enum BadRouteError {
+    BadRoute(String),
+}
+impl std::error::Error for BadRouteError {}
+
+impl fmt::Display for BadRouteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BadRouteError::BadRoute(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConfigFile {
+    size: usize,
+    snakes: Vec<(usize, usize)>,
+    ladders: Vec<(usize, usize)>,
+}
+
+fn load_cfg(file: &str) -> Result<Board, Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(file)?;
+    let v: ConfigFile = serde_json::from_str(&contents)?;
+    // todo check snakes down and ladders up
+    if v.snakes.iter().any(|el| el.0 < el.1) {
+        return Err(Box::new(BadRoute(
+            "Some snake(s) are going upwards!".to_string(),
+        )));
+    };
+    if v.ladders.iter().any(|el| el.0 > el.1) {
+        return Err(Box::new(BadRoute(
+            "Some ladders(s) are going downwards!".to_string(),
+        )));
+    };
+    let mut routes_vec = v.snakes.clone();
+    routes_vec.extend(v.ladders.clone());
+
+    let mut routes = HashMap::new();
+    for (from, to) in routes_vec {
+        if (from == 0) | (from >= v.size) {
+            return Err(Box::new(BadRoute(format!(
+                "Illegal snake/ladder start position: {}",
+                from
+            ))));
+        }
+        if to > v.size {
+            return Err(Box::new(BadRoute(format!(
+                "Illegal snake/ladder end position: {}",
+                from
+            ))));
+        }
+        if from == to {
+            return Err(Box::new(BadRoute(format!(
+                "Snake or ladder links to itself on square {}",
+                from
+            ))));
+        }
+        if routes.contains_key(&from) {
+            return Err(Box::new(BadRoute(format!(
+                "Duplicate snake or ladder from square {}",
+                from
+            ))));
+        }
+        routes.insert(from, to);
+    }
+    Ok(Board::new(v.size, routes))
 }
 
 struct Sim<T: Rollable> {
@@ -412,7 +485,10 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
 }
 
 fn main() {
-    let b = get_canon_board();
+    //let b = get_canon_board();
+    let b = load_cfg("config.json").unwrap();
+    println!("Loaded board");
+    println!("{:?}", b);
     let results = run_sim_batch(b, 1000);
-    print!("{:?}", results)
+    println!("{:?}", results);
 }
