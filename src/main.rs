@@ -93,6 +93,7 @@ struct Sim<T: Rollable> {
     slide_distance: usize,
     biggest_climb: usize,
     biggest_slide: usize,
+    longest_turn: Vec<usize>,
     lucky_rolls: usize,
     unlucky_rolls: usize,
 }
@@ -117,6 +118,7 @@ impl<T: Rollable> Sim<T> {
             slide_distance: 0,
             biggest_climb: 0,
             biggest_slide: 0,
+            longest_turn: vec![],
             lucky_rolls: 0,
             unlucky_rolls: 0,
         }
@@ -139,10 +141,12 @@ impl<T: Rollable> Sim<T> {
         self.turn_count += 1;
         let mut turn_climb = 0;
         let mut turn_slide = 0;
+        let mut die_rolls: Vec<usize> = vec![];
         while !self.has_won() {
             let result = self.roll();
             turn_climb += result.climb_distance;
             turn_slide += result.slide_distance;
+            die_rolls.push(result.die_value);
             if result.die_value < DIE_SIZE {
                 break;
             };
@@ -150,6 +154,9 @@ impl<T: Rollable> Sim<T> {
         // Store turn stats
         self.biggest_climb = max(self.biggest_climb, turn_climb);
         self.biggest_slide = max(self.biggest_slide, turn_slide);
+        if die_rolls > self.longest_turn {
+            self.longest_turn = die_rolls
+        };
     }
 
     fn roll(&mut self) -> RollResult {
@@ -312,6 +319,7 @@ mod tests_sim {
         assert_eq!(sim.biggest_slide, 101);
         assert_eq!(sim.lucky_rolls, 0);
         assert_eq!(sim.unlucky_rolls, 2);
+        assert_eq!(sim.longest_turn, vec![6, 3]);
         assert!(!sim.has_won());
     }
 }
@@ -330,9 +338,7 @@ struct MultiSimResult {
     max_slide: usize,
     biggest_turn_climb: usize, // Greatest climb in a single turn, INCLUDING re-rolls and chains
     biggest_turn_slide: usize, // Greatest slide in a single turn, INCLUDING re-rolls and chains
-                               /* //todo
-                               longest_turn: vec<usize>,
-                                */
+    longest_turn: Vec<usize>,  // Longest die rolls e.g. [6,5] < [6,6,2] < [6,6,3]
     min_lucky_rolls: usize,
     avg_lucky_rolls: f64,
     max_lucky_rolls: usize,
@@ -395,6 +401,7 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
         max_slide,
         biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
         biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
+        longest_turn: sims.iter().map(|s| s.longest_turn.clone()).max().unwrap(),
         min_lucky_rolls,
         avg_lucky_rolls,
         max_lucky_rolls,
