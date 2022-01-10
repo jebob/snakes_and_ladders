@@ -254,12 +254,12 @@ struct MultiSimResult {
     min_rolls: usize,
     avg_rolls: f64,
     max_rolls: usize,
-    min_climbs: usize, // Total distance, events or rolls?
-    avg_climbs: f64,
-    max_climbs: usize,
-    min_slides: usize,
-    avg_slides: f64,
-    max_slides: usize,
+    min_climb: usize, // Total distance
+    avg_climb: f64,
+    max_climb: usize,
+    min_slide: usize,
+    avg_slide: f64,
+    max_slide: usize,
     biggest_turn_climb: usize, // Greatest climb in a single turn, INCLUDING re-rolls and chains
     biggest_turn_slide: usize, // Greatest slide in a single turn, INCLUDING re-rolls and chains
                                /* //todo
@@ -307,20 +307,20 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
     }
     let (min_rolls, avg_rolls, max_rolls) =
         min_avg_max(sims.iter().map(|s| s.roll_count).collect()).unwrap();
-    let (min_climbs, avg_climbs, max_climbs) =
-        min_avg_max(sims.iter().map(|s| s.climb_count).collect()).unwrap();
-    let (min_slides, avg_slides, max_slides) =
-        min_avg_max(sims.iter().map(|s| s.slide_count).collect()).unwrap();
+    let (min_climb, avg_climb, max_climb) =
+        min_avg_max(sims.iter().map(|s| s.climb_distance).collect()).unwrap();
+    let (min_slide, avg_slide, max_slide) =
+        min_avg_max(sims.iter().map(|s| s.slide_distance).collect()).unwrap();
     MultiSimResult {
         min_rolls,
         avg_rolls,
         max_rolls,
-        min_climbs,
-        avg_climbs,
-        max_climbs,
-        min_slides,
-        avg_slides,
-        max_slides,
+        min_climb,
+        avg_climb,
+        max_climb,
+        min_slide,
+        avg_slide,
+        max_slide,
         biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
         biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
     }
