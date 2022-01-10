@@ -1,4 +1,5 @@
 {
+  "iterations": 1000,
   "size": 100,
   "snakes": [
     [27, 5],

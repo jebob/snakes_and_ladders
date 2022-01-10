@@ -100,12 +100,13 @@ impl fmt::Display for BadRouteError {
 
 #[derive(Serialize, Deserialize)]
 struct ConfigFile {
+    iterations: usize,
     size: usize,
     snakes: Vec<(usize, usize)>,
     ladders: Vec<(usize, usize)>,
 }
 
-fn load_cfg(file: &str) -> Result<Board, Box<dyn std::error::Error>> {
+fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(file)?;
     let v: ConfigFile = serde_json::from_str(&contents)?;
     // todo check snakes down and ladders up
@@ -150,7 +151,7 @@ fn load_cfg(file: &str) -> Result<Board, Box<dyn std::error::Error>> {
         }
         routes.insert(from, to);
     }
-    Ok(Board::new(v.size, routes))
+    Ok((Board::new(v.size, routes), v.iterations))
 }
 
 struct Sim<T: Rollable> {
@@ -486,9 +487,8 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
 
 fn main() {
     //let b = get_canon_board();
-    let b = load_cfg("config.json").unwrap();
+    let (b, max_ites) = load_cfg("config.json").unwrap();
     println!("Loaded board");
-    println!("{:?}", b);
-    let results = run_sim_batch(b, 1000);
+    let results = run_sim_batch(b, max_ites);
     println!("{:?}", results);
 }
