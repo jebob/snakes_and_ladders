@@ -2,7 +2,7 @@ mod dice;
 
 use crate::dice::{Rollable, DIE_SIZE};
 use rand::rngs::ThreadRng;
-use std::cmp::max;
+use std::cmp::{max, Ordering};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -49,6 +49,8 @@ struct Sim<T: Rollable> {
     slide_distance: usize,
     biggest_climb: usize,
     biggest_slide: usize,
+    lucky_rolls: usize,
+    unlucky_rolls: usize,
 }
 
 struct RollResult {
@@ -71,6 +73,8 @@ impl<T: Rollable> Sim<T> {
             slide_distance: 0,
             biggest_climb: 0,
             biggest_slide: 0,
+            lucky_rolls: 0,
+            unlucky_rolls: 0,
         }
     }
 
@@ -116,8 +120,8 @@ impl<T: Rollable> Sim<T> {
         // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
         let mut climb_distance = 0;
         let mut slide_distance = 0;
-        let mut new_position = self.position + die_value;
-        if new_position > self.board.size {
+        let rolled_position = self.position + die_value;
+        if rolled_position > self.board.size {
             // Illegal move!
             return RollResult {
                 die_value,
@@ -126,26 +130,62 @@ impl<T: Rollable> Sim<T> {
             };
         }
 
+        let mut lucky = false;
+        let mut unlucky = false;
         // Try to follow any routes (snake or ladder)
         // Note, in the version of the game from my childhood, snakes can chain!
-        while let Some(p) = self.board.routes.get(&new_position) {
-            if *p > new_position {
+        let mut slid_position = rolled_position;
+        while let Some(p) = self.board.routes.get(&slid_position) {
+            if *p > slid_position {
                 // ladder
-                let delta = *p - new_position;
+                let delta = *p - slid_position;
                 self.climb_count += 1;
                 climb_distance += delta;
                 self.climb_distance += delta;
             } else {
                 // snake
-                let delta = new_position - *p;
+                let delta = slid_position - *p;
                 self.slide_count += 1;
                 slide_distance += delta; // flip sign
                 self.slide_distance += delta;
             }
-            new_position = *p
+            slid_position = *p
         }
-
-        self.position = new_position;
+        match slid_position.cmp(&rolled_position) {
+            // Consider net effect of routes
+            Ordering::Greater => lucky = true,
+            Ordering::Less => unlucky = true,
+            Ordering::Equal => {}
+        };
+        // Check for snake near-miss
+        for delta in [-2, -1, 1, 2] {
+            let alt_position = rolled_position as i32 + delta;
+            if alt_position <= 0 {
+                continue;
+            } // handle underflow
+            let alt_position = alt_position as usize;
+            let slid_postion2 = *self
+                .board
+                .routes
+                .get(&alt_position)
+                .unwrap_or(&alt_position);
+            if slid_postion2 < rolled_position {
+                // Rolled onto a position that was next to a snake leading downwards
+                lucky = true;
+                break
+            }
+        }
+        self.position = slid_position;
+        if self.has_won() {
+            lucky = true;
+        } // Winning move, so lucky
+        if unlucky {
+            // Note "unlucky" trumps lucky.
+            // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
+            self.unlucky_rolls += 1
+        } else if lucky {
+            self.lucky_rolls += 1
+        }
         RollResult {
             die_value,
             climb_distance,
@@ -219,7 +259,23 @@ mod tests_sim {
         assert_eq!(sim.slide_distance, 0);
         assert_eq!(sim.biggest_climb, 21);
         assert_eq!(sim.biggest_slide, 0);
+        assert_eq!(sim.lucky_rolls, 6);
+        assert_eq!(sim.unlucky_rolls, 0);
         assert!(sim.has_won());
+    }
+    #[test]
+    fn test_luck() {
+        // More fun than useful!
+        // Can probably be deleted if the canon_board changes
+        let b = get_canon_board();
+        let rng = MockDie {
+            queued_results: vec![6, 4],
+        };
+        let mut sim = Sim::new(b, rng);
+        sim.roll();
+        sim.roll();
+        assert_eq!(sim.lucky_rolls, 1);
+        assert_eq!(sim.unlucky_rolls, 0);
     }
 
     #[test]
@@ -244,6 +300,8 @@ mod tests_sim {
         assert_eq!(sim.slide_distance, 101);
         assert_eq!(sim.biggest_climb, 0);
         assert_eq!(sim.biggest_slide, 101);
+        assert_eq!(sim.lucky_rolls, 0);
+        assert_eq!(sim.unlucky_rolls, 2);
         assert!(!sim.has_won());
     }
 }
@@ -264,13 +322,13 @@ struct MultiSimResult {
     biggest_turn_slide: usize, // Greatest slide in a single turn, INCLUDING re-rolls and chains
                                /* //todo
                                longest_turn: vec<usize>,
-                               min_lucky_rolls: usize,
-                               avg_lucky_rolls: f64,
-                               max_lucky_rolls: usize,
-                               min_unlucky_rolls: usize,
-                               avg_unlucky_rolls: f64,
-                               max_unlucky_rolls: usize,
                                 */
+    min_lucky_rolls: usize,
+    avg_lucky_rolls: f64,
+    max_lucky_rolls: usize,
+    min_unlucky_rolls: usize,
+    avg_unlucky_rolls: f64,
+    max_unlucky_rolls: usize,
 }
 
 fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
@@ -311,6 +369,10 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
         min_avg_max(sims.iter().map(|s| s.climb_distance).collect()).unwrap();
     let (min_slide, avg_slide, max_slide) =
         min_avg_max(sims.iter().map(|s| s.slide_distance).collect()).unwrap();
+    let (min_lucky_rolls, avg_lucky_rolls, max_lucky_rolls) =
+        min_avg_max(sims.iter().map(|s| s.lucky_rolls).collect()).unwrap();
+    let (min_unlucky_rolls, avg_unlucky_rolls, max_unlucky_rolls) =
+        min_avg_max(sims.iter().map(|s| s.unlucky_rolls).collect()).unwrap();
     MultiSimResult {
         min_rolls,
         avg_rolls,
@@ -323,6 +385,12 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
         max_slide,
         biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
         biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
+        min_lucky_rolls,
+        avg_lucky_rolls,
+        max_lucky_rolls,
+        min_unlucky_rolls,
+        avg_unlucky_rolls,
+        max_unlucky_rolls,
     }
 }
 
