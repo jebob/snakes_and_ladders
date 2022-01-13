@@ -1,5 +1,5 @@
 # snakes_and_ladders
-Snakes and ladders sim for technical interview. Simulate many games of snakes and ladders and output interesting stats.
+Snakes and Ladders sim for technical interview. Simulate many games of snakes and ladders and output interesting stats.
 
 ## Usage
 * `cargo run` builds and runs
