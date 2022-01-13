@@ -2,7 +2,6 @@ mod dice;
 
 use crate::dice::{Rollable, DIE_SIZE};
 use crate::BadRouteError::BadRoute;
-use rand::rngs::ThreadRng;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet};
@@ -128,10 +127,10 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
     Ok((Board::new(v.size, routes), v.iterations))
 }
 
-struct Sim<T: Rollable> {
+struct Sim {
     board: Board,
     position: usize,
-    rng: T,
+    rng: Box<dyn Rollable>,
     // stats
     turn_count: usize,
     roll_count: usize,
@@ -152,8 +151,8 @@ struct RollResult {
     slide_distance: usize,
 }
 
-impl<T: Rollable> Sim<T> {
-    fn new(board: Board, rng: T) -> Sim<T> {
+impl Sim {
+    fn new(board: Board, rng: Box<dyn Rollable>) -> Sim {
         Sim {
             board,
             position: 0,
@@ -303,7 +302,7 @@ mod tests_sim {
     #[test]
     fn test_roll() {
         // Check can move forwards
-        let mut sim = Sim::new(blank_board(20), Unrollable {});
+        let mut sim = Sim::new(blank_board(20), Box::new(Unrollable {}));
         assert_eq!(sim.position, 0);
         sim.roll_resolve(5);
         assert_eq!(sim.position, 5);
@@ -324,7 +323,7 @@ mod tests_sim {
         // Check can generate a random move
         let max_rolls = 10; // 10 times is good enough
         let board = blank_board(max_rolls * DIE_SIZE); // Make a big enough board
-        let mut sim = Sim::new(board.clone(), rand::thread_rng());
+        let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
         for _ in 0..max_rolls {
             let old_position = sim.position;
             let result = sim.roll();
@@ -353,9 +352,9 @@ mod tests_sim {
         // More fun than useful!
         // Can probably be deleted if the canon_board changes
         let b = get_canon_board();
-        let rng = MockDie {
+        let rng = Box::new(MockDie {
             queued_results: vec![2, 6, 5, 1, 2, 6, 4],
-        };
+        });
         let mut sim = Sim::new(b, rng);
         sim.run();
         assert_eq!(sim.roll_count, 7);
@@ -376,9 +375,9 @@ mod tests_sim {
         // Take one step forwards and fall down a chain of snakes
         // then re-roll and go down another snake
         let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]));
-        let rng = MockDie {
+        let rng = Box::new(MockDie {
             queued_results: vec![3, 6],
-        };
+        });
         let mut sim = Sim::new(b, rng);
         sim.position = 93; // Override position
         sim.turn();
@@ -445,9 +444,9 @@ mod tests_stats {
 }
 
 fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
-    let mut sims: Vec<Sim<ThreadRng>> = vec![];
+    let mut sims: Vec<Sim> = vec![];
     for _ in 0..count {
-        let mut sim = Sim::new(board.clone(), rand::thread_rng());
+        let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
         sim.run();
         //println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
         sims.push(sim);
