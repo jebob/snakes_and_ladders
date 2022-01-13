@@ -1,6 +1,6 @@
 mod dice;
 
-use crate::dice::{Rollable, DIE_SIZE};
+use crate::dice::{Roll, DIE_SIZE};
 use crate::BadRouteError::BadRoute;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, Ordering};
@@ -130,7 +130,7 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
 struct Sim {
     board: Board,
     position: usize,
-    rng: Box<dyn Rollable>,
+    rng: Box<dyn Roll>,
     // stats
     turn_count: usize,
     roll_count: usize,
@@ -152,7 +152,7 @@ struct RollResult {
 }
 
 impl Sim {
-    fn new(board: Board, rng: Box<dyn Rollable>) -> Sim {
+    fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
         Sim {
             board,
             position: 0,
@@ -208,6 +208,7 @@ impl Sim {
 
     fn roll(&mut self) -> RollResult {
         // Roll the die once and resolve the consequences
+        // Not the same as Roll::roll
         let die_value = self.rng.roll();
         self.roll_resolve(die_value)
     }
