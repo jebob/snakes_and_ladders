@@ -13,7 +13,7 @@ mod boards {
     #[derive(Debug, Clone)]
     pub struct Board {
         pub size: usize,
-        pub(crate) routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
+        pub routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
     }
 
     impl Board {
@@ -22,10 +22,12 @@ mod boards {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn blank(size: usize) -> Board {
         Board::new(size, HashMap::new())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn canon_board() -> Board {
         // Returns the board from the prompt
         Board::new(
@@ -317,27 +319,40 @@ mod sim {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::dice::{MockDie, Unrollable};
         use crate::boards::{blank, canon_board};
+        use crate::dice::{MockDie, Unrollable};
         use std::collections::{HashMap, HashSet};
 
         #[test]
-        fn test_roll() {
+        fn test_roll_movement() {
             // Check can move forwards
             let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
-            assert_eq!(sim.position, 0);
+            assert_eq!(sim.position, 0, "Should start at zero");
             sim.roll_resolve(5);
             assert_eq!(sim.position, 5);
             sim.roll_resolve(1);
             assert_eq!(sim.position, 6);
-            sim.roll_resolve(9999); // Should choke due to hitting end of board
-            assert_eq!(sim.position, 6);
-            assert!(!sim.has_won());
-            sim.roll_resolve(14); // Perfect roll!
+        }
+
+        #[test]
+        fn test_roll_over_rolling() {
+            // Over-rolling should not result in movement or winning
+            let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
+            sim.roll_resolve(9999);
+            assert_eq!(sim.position, 0);
+            assert!(!sim.has_won(), "Not on the victory space, but has_won?");
+        }
+
+        #[test]
+        fn test_roll_winning() {
+            let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
+            sim.roll_resolve(20); // Perfect roll!
             assert_eq!(sim.position, 20); // End of board
-            assert!(sim.has_won()); // Won
+            assert!(sim.has_won(), "At winning position, but not has_won?");
+
+            // test post-victory behaviour
             sim.roll_resolve(1);
-            assert_eq!(sim.position, 20); // No further moves possible
+            assert_eq!(sim.position, 20, "Moved after winning, illegal");
         }
 
         #[test]
@@ -350,8 +365,17 @@ mod sim {
                 let old_position = sim.position;
                 let result = sim.roll();
                 println!("Rolled a {}", result.die_value); // Maybe useful for debugging
-                assert!(1 <= result.die_value, "{}", result.die_value);
-                assert!(result.die_value <= DIE_SIZE, "{}", result.die_value);
+                assert!(
+                    1 <= result.die_value,
+                    "Die value {} is < 1",
+                    result.die_value
+                );
+                assert!(
+                    result.die_value <= DIE_SIZE,
+                    "Die value {} is > {}",
+                    result.die_value,
+                    DIE_SIZE
+                );
                 assert_eq!(sim.position, old_position + result.die_value);
             }
         }
@@ -495,13 +519,19 @@ fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
 #[cfg(test)]
 mod tests_stats {
     use super::*;
+    use crate::boards::canon_board;
     use crate::dice::Unrollable;
     #[test]
-    fn test_min_max_average() {
+    fn test_min_max_average_empty() {
         assert!(min_avg_max(vec![]).is_none());
+    }
+    #[test]
+    fn test_min_max_average_singleton() {
         assert_eq!(min_avg_max(vec![5]).unwrap(), (5, 5.0, 5));
+    }
+    #[test]
+    fn test_min_max_average_fraction() {
         assert_eq!(min_avg_max(vec![8, 0, 3]).unwrap(), (0, 11.0 / 3.0, 8));
-        assert_eq!(min_avg_max(vec![1, 2, 3]).unwrap(), (1, 2.0, 3));
     }
     #[test]
     fn test_empty_multi_sim_result() {
@@ -532,6 +562,12 @@ mod tests_stats {
                 max_unlucky_rolls: 0
             }
         )
+    }
+    #[test]
+    fn test_sim_batch() {
+        let results = run_sim_batch(canon_board(), 10);
+        assert!(results.min_rolls > 0); // Must roll once in order to win
+        assert!(results.min_lucky_rolls >= 1); // Winning is a lucky roll
     }
 }
 
