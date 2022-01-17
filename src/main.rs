@@ -156,39 +156,46 @@ mod sim {
         slide_distance: usize,
     }
 
-    impl Sim {
-        pub(crate) fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
-            // Pre-calculate (un)lucky spaces
-            let mut lucky_spaces: HashSet<usize> = HashSet::new();
-            let mut unlucky_spaces: HashSet<usize> = HashSet::new();
-            for i in 0..board.size {
-                // lucky or unlucky if ladder or snake.
-                match board.routes.get(&i).unwrap_or(&i).cmp(&i) {
-                    Ordering::Greater => {
-                        lucky_spaces.insert(i);
-                    }
-                    Ordering::Less => {
-                        unlucky_spaces.insert(i);
-                    }
-                    Ordering::Equal => {}
+    /// Implementation detail for (un)lucky rolls
+    /// Currently a roll is (un)lucky iff it lands on an (un)lucky space
+    fn calc_lucky_spaces(board: &Board) -> (HashSet<usize>, HashSet<usize>) {
+        let mut lucky_spaces: HashSet<usize> = HashSet::new();
+        let mut unlucky_spaces: HashSet<usize> = HashSet::new();
+        for i in 0..board.size {
+            // lucky or unlucky if ladder or snake.
+            match board.routes.get(&i).unwrap_or(&i).cmp(&i) {
+                Ordering::Greater => {
+                    lucky_spaces.insert(i);
                 }
-                // Check for snake near-miss
-                for delta in [-2, -1, 1, 2] {
-                    let other_i = i as isize + delta;
-                    if other_i <= 0 {
-                        continue; // Underflow, so ignore
-                    }
-                    let other_i = other_i as usize;
-                    let route_outcome = *board.routes.get(&other_i).unwrap_or(&other_i);
-                    if route_outcome < other_i {
-                        // Rolled onto a position that was next to a snake leading downwards
-                        lucky_spaces.insert(i);
-                        break;
-                    }
+                Ordering::Less => {
+                    unlucky_spaces.insert(i);
+                }
+                Ordering::Equal => {}
+            }
+            // Check for snake near-miss
+            for delta in [-2, -1, 1, 2] {
+                let other_i = i as isize + delta;
+                if other_i <= 0 {
+                    continue; // Underflow, so ignore
+                }
+                let other_i = other_i as usize;
+                let route_outcome = *board.routes.get(&other_i).unwrap_or(&other_i);
+                if route_outcome < other_i {
+                    // Rolled onto a position that was next to a snake leading downwards
+                    lucky_spaces.insert(i);
+                    break;
                 }
             }
-            // Finally, the winning space is lucky
-            lucky_spaces.insert(board.size);
+        }
+        // Finally, the winning space is lucky
+        lucky_spaces.insert(board.size);
+        (lucky_spaces, unlucky_spaces)
+    }
+
+    impl Sim {
+        pub fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
+            // Pre-calculate (un)lucky spaces
+            let (lucky_spaces, unlucky_spaces) = calc_lucky_spaces(&board);
 
             Sim {
                 board,
@@ -255,39 +262,24 @@ mod sim {
         /// Try to move forwards some spaces
         fn roll_resolve(&mut self, die_value: usize) -> RollResult {
             self.roll_count += 1;
-            // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
-            let mut climb_distance = 0;
-            let mut slide_distance = 0;
             let rolled_position = self.position + die_value;
             if rolled_position > self.board.size {
                 // Illegal move!
                 return RollResult {
                     die_value,
-                    climb_distance,
-                    slide_distance,
+                    climb_distance: 0,
+                    slide_distance: 0,
                 };
             }
 
             // Try to follow any routes (snake or ladder)
-            // Note, in the version of the game from my childhood, snakes can chain!
-            let mut slid_position = rolled_position;
-            while let Some(p) = self.board.routes.get(&slid_position) {
-                if *p > slid_position {
-                    // ladder
-                    let delta = *p - slid_position;
-                    self.climb_count += 1;
-                    climb_distance += delta;
-                    self.climb_distance += delta;
-                } else {
-                    // snake
-                    let delta = slid_position - *p;
-                    self.slide_count += 1;
-                    slide_distance += delta; // flip sign
-                    self.slide_distance += delta;
-                }
-                slid_position = *p
-            }
-            self.position = slid_position;
+            self.position = rolled_position;
+            self.follow_routes();
+            let (climb_distance, slide_distance) = if self.position > rolled_position {
+                (self.position - rolled_position, 0)
+            } else {
+                (0, rolled_position - self.position)
+            };
 
             if self.is_unlucky_roll(&rolled_position) {
                 // Note "unlucky" trumps lucky.
@@ -301,6 +293,28 @@ mod sim {
                 climb_distance,
                 slide_distance,
             }
+        }
+
+        /// Follow snakes and ladders from the current position
+        /// Can follow multiple snakes/ladders
+        fn follow_routes(&mut self) {
+            let mut new_position = self.position;
+            while let Some(p) = self.board.routes.get(&new_position) {
+                if *p > new_position {
+                    // ladder
+                    let delta = *p - new_position;
+                    self.climb_count += 1;
+                    self.climb_distance += delta;
+                } else {
+                    // snake
+                    let delta = new_position - *p;
+                    self.slide_count += 1;
+                    self.slide_distance += delta;
+                }
+                new_position = *p
+            }
+            self.position = new_position;
+            // Don't return value to ensure sliding/climbing is an atomic action
         }
 
         fn is_lucky_roll(&self, rolled_position: &usize) -> bool {
