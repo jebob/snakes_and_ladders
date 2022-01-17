@@ -21,6 +21,36 @@ mod boards {
             Board { size, routes }
         }
     }
+
+    pub(crate) fn blank(size: usize) -> Board {
+        Board::new(size, HashMap::new())
+    }
+
+    pub(crate) fn canon_board() -> Board {
+        // Returns the board from the prompt
+        Board::new(
+            100,
+            HashMap::from([
+                // snakes go down
+                (27, 5),
+                (40, 3),
+                (43, 18),
+                (54, 31),
+                (66, 45),
+                (76, 58),
+                (89, 53),
+                (99, 41),
+                // ladders go up
+                (4, 25),
+                (13, 46),
+                (33, 49),
+                (42, 63),
+                (50, 69),
+                (62, 81),
+                (74, 92),
+            ]),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -288,41 +318,13 @@ mod sim {
     mod tests {
         use super::*;
         use crate::dice::{MockDie, Unrollable};
+        use crate::boards::{blank, canon_board};
         use std::collections::{HashMap, HashSet};
-
-        fn blank_board(size: usize) -> Board {
-            Board::new(size, HashMap::new())
-        }
-
-        fn get_canon_board() -> Board {
-            Board::new(
-                100,
-                HashMap::from([
-                    // snakes go down
-                    (27, 5),
-                    (40, 3),
-                    (43, 18),
-                    (54, 31),
-                    (66, 45),
-                    (76, 58),
-                    (89, 53),
-                    (99, 41),
-                    // ladders go up
-                    (4, 25),
-                    (13, 46),
-                    (33, 49),
-                    (42, 63),
-                    (50, 69),
-                    (62, 81),
-                    (74, 92),
-                ]),
-            )
-        }
 
         #[test]
         fn test_roll() {
             // Check can move forwards
-            let mut sim = Sim::new(blank_board(20), Box::new(Unrollable {}));
+            let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
             assert_eq!(sim.position, 0);
             sim.roll_resolve(5);
             assert_eq!(sim.position, 5);
@@ -342,7 +344,7 @@ mod sim {
         fn test_random_roll() {
             // Check can generate a random move
             let max_rolls = 10; // 10 times is good enough
-            let board = blank_board(max_rolls * DIE_SIZE); // Make a big enough board
+            let board = blank(max_rolls * DIE_SIZE); // Make a big enough board
             let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
             for _ in 0..max_rolls {
                 let old_position = sim.position;
@@ -374,7 +376,7 @@ mod sim {
         fn test_canon_board_speedrun() {
             // More fun than useful!
             // Can probably be deleted if the canon_board changes
-            let b = get_canon_board();
+            let b = canon_board();
             let rng = Box::new(MockDie {
                 queued_results: vec![2, 6, 5, 1, 2, 6, 4],
             });
