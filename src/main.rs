@@ -27,9 +27,9 @@ mod boards {
         Board::new(size, HashMap::new())
     }
 
+    /// Returns the board from the prompt
     #[allow(dead_code)]
     pub(crate) fn canon_board() -> Board {
-        // Returns the board from the prompt
         Board::new(
             100,
             HashMap::from([
@@ -80,7 +80,6 @@ struct ConfigFile {
 fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(file)?;
     let v: ConfigFile = serde_json::from_str(&contents)?;
-    // todo check snakes down and ladders up
     if v.snakes.iter().any(|el| el.0 < el.1) {
         return Err(Box::new(BadRoute(
             "Some snake(s) are going upwards!".to_string(),
@@ -215,16 +214,16 @@ mod sim {
             self.position == self.board.size
         }
 
-        pub(crate) fn run(&mut self) {
-            // Take turns until has_won()
+        /// Take turns until has_won()
+        pub fn run(&mut self) {
             // Add a max_turns constraint? Not all possible boards are winnable.
             while !self.has_won() {
                 self.turn()
             }
         }
 
+        /// Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
         fn turn(&mut self) {
-            // Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
             self.turn_count += 1;
             let mut turn_climb = 0;
             let mut turn_slide = 0;
@@ -246,15 +245,15 @@ mod sim {
             };
         }
 
+        /// Roll the die once and resolve the consequences
         fn roll(&mut self) -> RollResult {
-            // Roll the die once and resolve the consequences
             // Not the same as Roll::roll
             let die_value = self.rng.roll();
             self.roll_resolve(die_value)
         }
 
+        /// Try to move forwards some spaces
         fn roll_resolve(&mut self, die_value: usize) -> RollResult {
-            // Try to move forwards some spaces
             self.roll_count += 1;
             // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
             let mut climb_distance = 0;
@@ -290,7 +289,6 @@ mod sim {
             }
             self.position = slid_position;
 
-            // (un)Lucky if landing on an (un)lucky space
             if self.is_unlucky_roll(&rolled_position) {
                 // Note "unlucky" trumps lucky.
                 // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
@@ -306,12 +304,16 @@ mod sim {
         }
 
         fn is_lucky_roll(&self, rolled_position: &usize) -> bool {
-            // We are lucky if we land in a rolled position
+            // We are lucky if we land on a lucky position i.e.
+            // a ladder
+            // or just missing a snake
+            // or winning
             self.lucky_spaces.contains(rolled_position)
         }
 
         fn is_unlucky_roll(&self, rolled_position: &usize) -> bool {
-            // We are unlucky if we land in a rolled position
+            // We are unlucky if we land on an unlucky position i.e.
+            // a snake
             self.unlucky_spaces.contains(rolled_position)
         }
     }
@@ -323,9 +325,9 @@ mod sim {
         use crate::dice::{MockDie, Unrollable};
         use std::collections::{HashMap, HashSet};
 
+        /// Check can move forwards
         #[test]
         fn test_roll_movement() {
-            // Check can move forwards
             let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
             assert_eq!(sim.position, 0, "Should start at zero");
             sim.roll_resolve(5);
@@ -334,9 +336,9 @@ mod sim {
             assert_eq!(sim.position, 6);
         }
 
+        /// Over-rolling should not result in movement or winning
         #[test]
         fn test_roll_over_rolling() {
-            // Over-rolling should not result in movement or winning
             let mut sim = Sim::new(blank(20), Box::new(Unrollable {}));
             sim.roll_resolve(9999);
             assert_eq!(sim.position, 0);
@@ -355,9 +357,9 @@ mod sim {
             assert_eq!(sim.position, 20, "Moved after winning, illegal");
         }
 
+        /// Check can generate a plausible random move
         #[test]
         fn test_random_roll() {
-            // Check can generate a random move
             let max_rolls = 10; // 10 times is good enough
             let board = blank(max_rolls * DIE_SIZE); // Make a big enough board
             let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
