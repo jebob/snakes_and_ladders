@@ -1,58 +1,64 @@
 mod dice;
 
+use crate::boards::Board;
 use crate::dice::{Roll, DIE_SIZE};
 use crate::BadRouteError::BadRoute;
 use serde::{Deserialize, Serialize};
-use std::cmp::{max, Ordering};
-use std::collections::{HashMap, HashSet};
+use std::cmp::max;
+use std::collections::HashMap;
 use std::{fmt, fs};
 
-#[derive(Debug, Clone)]
-struct Board {
-    size: usize,
-    routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
-    lucky_spaces: HashSet<usize>,
-    unlucky_spaces: HashSet<usize>,
-}
+mod boards {
+    use std::cmp::Ordering;
+    use std::collections::{HashMap, HashSet};
 
-impl Board {
-    fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
-        // Pre-calculate (un)lucky spaces
-        let mut lucky_spaces: HashSet<usize> = HashSet::new();
-        let mut unlucky_spaces: HashSet<usize> = HashSet::new();
-        for i in 0..size {
-            // lucky or unlucky if ladder or snake.
-            match routes.get(&i).unwrap_or(&i).cmp(&i) {
-                Ordering::Greater => {
-                    lucky_spaces.insert(i);
+    #[derive(Debug, Clone)]
+    pub struct Board {
+        pub size: usize,
+        pub(crate) routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
+        pub lucky_spaces: HashSet<usize>,
+        pub unlucky_spaces: HashSet<usize>,
+    }
+
+    impl Board {
+        pub fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
+            // Pre-calculate (un)lucky spaces
+            let mut lucky_spaces: HashSet<usize> = HashSet::new();
+            let mut unlucky_spaces: HashSet<usize> = HashSet::new();
+            for i in 0..size {
+                // lucky or unlucky if ladder or snake.
+                match routes.get(&i).unwrap_or(&i).cmp(&i) {
+                    Ordering::Greater => {
+                        lucky_spaces.insert(i);
+                    }
+                    Ordering::Less => {
+                        unlucky_spaces.insert(i);
+                    }
+                    Ordering::Equal => {}
                 }
-                Ordering::Less => {
-                    unlucky_spaces.insert(i);
+                // Check for snake near-miss
+                for delta in [-2, -1, 1, 2] {
+                    let other_i = i as isize + delta;
+                    if other_i <= 0 {
+                        continue; // Underflow, so ignore
+                    }
+                    let other_i = other_i as usize;
+                    let route_outcome = *routes.get(&other_i).unwrap_or(&other_i);
+                    if route_outcome < other_i {
+                        // Rolled onto a position that was next to a snake leading downwards
+                        lucky_spaces.insert(i);
+                        break;
+                    }
                 }
-                Ordering::Equal => {}
             }
-            // Check for snake near-miss
-            for delta in [-2, -1, 1, 2] {
-                let other_i = i as isize + delta;
-                if other_i <= 0 {
-                    continue; // Underflow, so ignore
-                }
-                let other_i = other_i as usize;
-                let route_outcome = *routes.get(&other_i).unwrap_or(&other_i);
-                if route_outcome < other_i {
-                    // Rolled onto a position that was next to a snake leading downwards
-                    lucky_spaces.insert(i);
-                    break;
-                }
+            // Finally, the winning space is lucky
+            lucky_spaces.insert(size);
+            Board {
+                size,
+                routes,
+                lucky_spaces,
+                unlucky_spaces,
             }
-        }
-        // Finally, the winning space is lucky
-        lucky_spaces.insert(size);
-        Board {
-            size,
-            routes,
-            lucky_spaces,
-            unlucky_spaces,
         }
     }
 }
@@ -270,6 +276,7 @@ impl Sim {
 mod tests_sim {
     use super::*;
     use crate::dice::{MockDie, Unrollable};
+    use std::collections::HashSet;
 
     fn blank_board(size: usize) -> Board {
         Board::new(size, HashMap::new())
