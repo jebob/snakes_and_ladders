@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::{fmt, fs};
 
 mod boards {
+    use crate::{BadRoute, BadRouteError};
     use std::collections::HashMap;
 
     #[derive(Debug, Clone)]
@@ -17,14 +18,36 @@ mod boards {
     }
 
     impl Board {
-        pub fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
-            Board { size, routes }
+        pub fn new(size: usize, routes: HashMap<usize, usize>) -> Result<Board, BadRouteError> {
+            // Do some validation first
+            for (&from, &to) in routes.iter() {
+                if (from == 0) | (from >= size) {
+                    return Err(BadRoute(format!(
+                        "Illegal snake/ladder start position: {}",
+                        from
+                    )));
+                }
+                if to > size {
+                    return Err(BadRoute(format!(
+                        "Illegal snake/ladder end position: {}",
+                        to
+                    )));
+                }
+                if from == to {
+                    return Err(BadRoute(format!(
+                        "Snake or ladder links to itself on square {}",
+                        from
+                    )));
+                }
+            }
+
+            Ok(Board { size, routes })
         }
     }
 
     #[allow(dead_code)]
     pub(crate) fn blank(size: usize) -> Board {
-        Board::new(size, HashMap::new())
+        Board::new(size, HashMap::new()).unwrap()
     }
 
     /// Returns the board from the prompt
@@ -52,11 +75,26 @@ mod boards {
                 (74, 92),
             ]),
         )
+        .unwrap()
+    }
+
+    #[cfg(test)]
+    mod test {
+        use crate::boards::*;
+
+        #[test]
+        fn test_blank() {
+            let _ = blank(100);
+        }
+        #[test]
+        fn test_canon_board() {
+            let _ = canon_board();
+        }
     }
 }
 
 #[derive(Debug)]
-enum BadRouteError {
+pub enum BadRouteError {
     BadRoute(String),
 }
 impl std::error::Error for BadRouteError {}
@@ -95,24 +133,6 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
 
     let mut routes = HashMap::new();
     for (from, to) in routes_vec {
-        if (from == 0) | (from >= v.size) {
-            return Err(Box::new(BadRoute(format!(
-                "Illegal snake/ladder start position: {}",
-                from
-            ))));
-        }
-        if to > v.size {
-            return Err(Box::new(BadRoute(format!(
-                "Illegal snake/ladder end position: {}",
-                to
-            ))));
-        }
-        if from == to {
-            return Err(Box::new(BadRoute(format!(
-                "Snake or ladder links to itself on square {}",
-                from
-            ))));
-        }
         if routes.contains_key(&from) {
             return Err(Box::new(BadRoute(format!(
                 "Duplicate snake or ladder from square {}",
@@ -121,7 +141,7 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
         }
         routes.insert(from, to);
     }
-    Ok((Board::new(v.size, routes), v.iterations))
+    Ok((Board::new(v.size, routes)?, v.iterations))
 }
 
 mod sim {
@@ -399,7 +419,7 @@ mod sim {
         #[test]
         fn test_lucky_spaces() {
             // If rules for luck changes, should replace this with checking rolls.
-            let board = Board::new(20, HashMap::from([(5, 8), (14, 2)]));
+            let board = Board::new(20, HashMap::from([(5, 8), (14, 2)])).unwrap();
             let sim = Sim::new(board, Box::new(Unrollable {}));
             assert_eq!(
                 sim.lucky_spaces,
@@ -439,7 +459,7 @@ mod sim {
         fn test_chained_slides() {
             // Take one step forwards and fall down a chain of snakes
             // then re-roll and go down another snake
-            let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]));
+            let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)])).unwrap();
             let rng = Box::new(MockDie {
                 queued_results: vec![3, 6],
             });
@@ -551,7 +571,7 @@ mod tests_stats {
     }
     #[test]
     fn test_empty_multi_sim_result() {
-        let b = Board::new(100, HashMap::new());
+        let b = boards::blank(100);
         let rng = Box::new(Unrollable {});
         let sim = Sim::new(b, rng);
         let result: MultiSimResult = MultiSimResult::from_sims(&vec![sim]);
