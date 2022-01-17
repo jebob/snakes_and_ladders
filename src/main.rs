@@ -1,11 +1,10 @@
 mod dice;
 
 use crate::boards::Board;
-use crate::dice::{Roll, DIE_SIZE};
+use crate::sim::Sim;
 use crate::BadRouteError::BadRoute;
 use serde::{Deserialize, Serialize};
-use std::cmp::{max, Ordering};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::{fmt, fs};
 
 mod boards {
@@ -19,10 +18,7 @@ mod boards {
 
     impl Board {
         pub fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
-            Board {
-                size,
-                routes,
-            }
+            Board { size, routes }
         }
     }
 }
@@ -97,323 +93,330 @@ fn load_cfg(file: &str) -> Result<(Board, usize), Box<dyn std::error::Error>> {
     Ok((Board::new(v.size, routes), v.iterations))
 }
 
-struct Sim {
-    board: Board,
-    position: usize,
-    rng: Box<dyn Roll>,
-    lucky_spaces: HashSet<usize>,
-    unlucky_spaces: HashSet<usize>,
-    // stats
-    turn_count: usize,
-    roll_count: usize,
-    climb_count: usize,
-    slide_count: usize,
-    climb_distance: usize,
-    slide_distance: usize,
-    biggest_climb: usize,
-    biggest_slide: usize,
-    longest_turn: Vec<usize>,
-    lucky_rolls: usize,
-    unlucky_rolls: usize,
-}
+mod sim {
+    use crate::dice::{Roll, DIE_SIZE};
+    use crate::Board;
+    use std::cmp::{max, Ordering};
+    use std::collections::HashSet;
 
-struct RollResult {
-    die_value: usize,
-    climb_distance: usize,
-    slide_distance: usize,
-}
+    pub struct Sim {
+        board: Board,
+        position: usize,
+        rng: Box<dyn Roll>,
+        lucky_spaces: HashSet<usize>,
+        unlucky_spaces: HashSet<usize>,
+        // stats
+        pub turn_count: usize,
+        pub roll_count: usize,
+        pub climb_count: usize,
+        pub slide_count: usize,
+        pub climb_distance: usize,
+        pub slide_distance: usize,
+        pub biggest_climb: usize,
+        pub biggest_slide: usize,
+        pub longest_turn: Vec<usize>,
+        pub lucky_rolls: usize,
+        pub unlucky_rolls: usize,
+    }
 
-impl Sim {
-    fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
+    struct RollResult {
+        die_value: usize,
+        climb_distance: usize,
+        slide_distance: usize,
+    }
 
-        // Pre-calculate (un)lucky spaces
-        let mut lucky_spaces: HashSet<usize> = HashSet::new();
-        let mut unlucky_spaces: HashSet<usize> = HashSet::new();
-        for i in 0..board.size {
-            // lucky or unlucky if ladder or snake.
-            match board.routes.get(&i).unwrap_or(&i).cmp(&i) {
-                Ordering::Greater => {
-                    lucky_spaces.insert(i);
+    impl Sim {
+        pub(crate) fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
+            // Pre-calculate (un)lucky spaces
+            let mut lucky_spaces: HashSet<usize> = HashSet::new();
+            let mut unlucky_spaces: HashSet<usize> = HashSet::new();
+            for i in 0..board.size {
+                // lucky or unlucky if ladder or snake.
+                match board.routes.get(&i).unwrap_or(&i).cmp(&i) {
+                    Ordering::Greater => {
+                        lucky_spaces.insert(i);
+                    }
+                    Ordering::Less => {
+                        unlucky_spaces.insert(i);
+                    }
+                    Ordering::Equal => {}
                 }
-                Ordering::Less => {
-                    unlucky_spaces.insert(i);
+                // Check for snake near-miss
+                for delta in [-2, -1, 1, 2] {
+                    let other_i = i as isize + delta;
+                    if other_i <= 0 {
+                        continue; // Underflow, so ignore
+                    }
+                    let other_i = other_i as usize;
+                    let route_outcome = *board.routes.get(&other_i).unwrap_or(&other_i);
+                    if route_outcome < other_i {
+                        // Rolled onto a position that was next to a snake leading downwards
+                        lucky_spaces.insert(i);
+                        break;
+                    }
                 }
-                Ordering::Equal => {}
             }
-            // Check for snake near-miss
-            for delta in [-2, -1, 1, 2] {
-                let other_i = i as isize + delta;
-                if other_i <= 0 {
-                    continue; // Underflow, so ignore
-                }
-                let other_i = other_i as usize;
-                let route_outcome = *board.routes.get(&other_i).unwrap_or(&other_i);
-                if route_outcome < other_i {
-                    // Rolled onto a position that was next to a snake leading downwards
-                    lucky_spaces.insert(i);
+            // Finally, the winning space is lucky
+            lucky_spaces.insert(board.size);
+
+            Sim {
+                board,
+                position: 0,
+                rng,
+                lucky_spaces,
+                unlucky_spaces,
+                turn_count: 0,
+                roll_count: 0,
+                climb_count: 0,
+                slide_count: 0,
+                climb_distance: 0,
+                slide_distance: 0,
+                biggest_climb: 0,
+                biggest_slide: 0,
+                longest_turn: vec![],
+                lucky_rolls: 0,
+                unlucky_rolls: 0,
+            }
+        }
+
+        fn has_won(&self) -> bool {
+            self.position == self.board.size
+        }
+
+        pub(crate) fn run(&mut self) {
+            // Take turns until has_won()
+            // Add a max_turns constraint? Not all possible boards are winnable.
+            while !self.has_won() {
+                self.turn()
+            }
+        }
+
+        fn turn(&mut self) {
+            // Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
+            self.turn_count += 1;
+            let mut turn_climb = 0;
+            let mut turn_slide = 0;
+            let mut die_rolls: Vec<usize> = vec![];
+            while !self.has_won() {
+                let result = self.roll();
+                turn_climb += result.climb_distance;
+                turn_slide += result.slide_distance;
+                die_rolls.push(result.die_value);
+                if result.die_value < DIE_SIZE {
                     break;
-                }
+                };
             }
-        }
-        // Finally, the winning space is lucky
-        lucky_spaces.insert(board.size);
-
-        Sim {
-            board,
-            position: 0,
-            rng,
-            lucky_spaces,
-            unlucky_spaces,
-            turn_count: 0,
-            roll_count: 0,
-            climb_count: 0,
-            slide_count: 0,
-            climb_distance: 0,
-            slide_distance: 0,
-            biggest_climb: 0,
-            biggest_slide: 0,
-            longest_turn: vec![],
-            lucky_rolls: 0,
-            unlucky_rolls: 0,
-        }
-    }
-
-    fn has_won(&self) -> bool {
-        self.position == self.board.size
-    }
-
-    fn run(&mut self) {
-        // Take turns until has_won()
-        // Add a max_turns constraint? Not all possible boards are winnable.
-        while !self.has_won() {
-            self.turn()
-        }
-    }
-
-    fn turn(&mut self) {
-        // Roll once, and keep rolling if we get DIE_SIZE. Stop immediately if we've won.
-        self.turn_count += 1;
-        let mut turn_climb = 0;
-        let mut turn_slide = 0;
-        let mut die_rolls: Vec<usize> = vec![];
-        while !self.has_won() {
-            let result = self.roll();
-            turn_climb += result.climb_distance;
-            turn_slide += result.slide_distance;
-            die_rolls.push(result.die_value);
-            if result.die_value < DIE_SIZE {
-                break;
+            // Store turn stats
+            self.biggest_climb = max(self.biggest_climb, turn_climb);
+            self.biggest_slide = max(self.biggest_slide, turn_slide);
+            if die_rolls > self.longest_turn {
+                self.longest_turn = die_rolls
             };
         }
-        // Store turn stats
-        self.biggest_climb = max(self.biggest_climb, turn_climb);
-        self.biggest_slide = max(self.biggest_slide, turn_slide);
-        if die_rolls > self.longest_turn {
-            self.longest_turn = die_rolls
-        };
-    }
 
-    fn roll(&mut self) -> RollResult {
-        // Roll the die once and resolve the consequences
-        // Not the same as Roll::roll
-        let die_value = self.rng.roll();
-        self.roll_resolve(die_value)
-    }
+        fn roll(&mut self) -> RollResult {
+            // Roll the die once and resolve the consequences
+            // Not the same as Roll::roll
+            let die_value = self.rng.roll();
+            self.roll_resolve(die_value)
+        }
 
-    fn roll_resolve(&mut self, die_value: usize) -> RollResult {
-        // Try to move forwards some spaces
-        self.roll_count += 1;
-        // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
-        let mut climb_distance = 0;
-        let mut slide_distance = 0;
-        let rolled_position = self.position + die_value;
-        if rolled_position > self.board.size {
-            // Illegal move!
-            return RollResult {
+        fn roll_resolve(&mut self, die_value: usize) -> RollResult {
+            // Try to move forwards some spaces
+            self.roll_count += 1;
+            // Track roll-wise climb/slide distance separately from lifetime climb/slide distance
+            let mut climb_distance = 0;
+            let mut slide_distance = 0;
+            let rolled_position = self.position + die_value;
+            if rolled_position > self.board.size {
+                // Illegal move!
+                return RollResult {
+                    die_value,
+                    climb_distance,
+                    slide_distance,
+                };
+            }
+
+            // Try to follow any routes (snake or ladder)
+            // Note, in the version of the game from my childhood, snakes can chain!
+            let mut slid_position = rolled_position;
+            while let Some(p) = self.board.routes.get(&slid_position) {
+                if *p > slid_position {
+                    // ladder
+                    let delta = *p - slid_position;
+                    self.climb_count += 1;
+                    climb_distance += delta;
+                    self.climb_distance += delta;
+                } else {
+                    // snake
+                    let delta = slid_position - *p;
+                    self.slide_count += 1;
+                    slide_distance += delta; // flip sign
+                    self.slide_distance += delta;
+                }
+                slid_position = *p
+            }
+            self.position = slid_position;
+
+            // (un)Lucky if landing on an (un)lucky space
+            if self.is_unlucky_roll(&rolled_position) {
+                // Note "unlucky" trumps lucky.
+                // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
+                self.unlucky_rolls += 1
+            } else if self.is_lucky_roll(&rolled_position) {
+                self.lucky_rolls += 1
+            }
+            RollResult {
                 die_value,
                 climb_distance,
                 slide_distance,
-            };
-        }
-
-        // Try to follow any routes (snake or ladder)
-        // Note, in the version of the game from my childhood, snakes can chain!
-        let mut slid_position = rolled_position;
-        while let Some(p) = self.board.routes.get(&slid_position) {
-            if *p > slid_position {
-                // ladder
-                let delta = *p - slid_position;
-                self.climb_count += 1;
-                climb_distance += delta;
-                self.climb_distance += delta;
-            } else {
-                // snake
-                let delta = slid_position - *p;
-                self.slide_count += 1;
-                slide_distance += delta; // flip sign
-                self.slide_distance += delta;
             }
-            slid_position = *p
         }
-        self.position = slid_position;
 
-        // (un)Lucky if landing on an (un)lucky space
-        if self.is_unlucky_roll(&rolled_position) {
-            // Note "unlucky" trumps lucky.
-            // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
-            self.unlucky_rolls += 1
-        } else if self.is_lucky_roll(&rolled_position) {
-            self.lucky_rolls += 1
+        fn is_lucky_roll(&self, rolled_position: &usize) -> bool {
+            // We are lucky if we land in a rolled position
+            self.lucky_spaces.contains(rolled_position)
         }
-        RollResult {
-            die_value,
-            climb_distance,
-            slide_distance,
+
+        fn is_unlucky_roll(&self, rolled_position: &usize) -> bool {
+            // We are unlucky if we land in a rolled position
+            self.unlucky_spaces.contains(rolled_position)
         }
     }
 
-    fn is_lucky_roll(&self, rolled_position: &usize) -> bool {
-        // We are lucky if we land in a rolled position
-        self.lucky_spaces.contains(rolled_position)
-    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::dice::{MockDie, Unrollable};
+        use std::collections::{HashMap, HashSet};
 
-    fn is_unlucky_roll(&self, rolled_position: &usize) -> bool {
-        // We are unlucky if we land in a rolled position
-        self.unlucky_spaces.contains(rolled_position)
-    }
-}
-
-#[cfg(test)]
-mod tests_sim {
-    use super::*;
-    use crate::dice::{MockDie, Unrollable};
-    use std::collections::HashSet;
-
-    fn blank_board(size: usize) -> Board {
-        Board::new(size, HashMap::new())
-    }
-
-    fn get_canon_board() -> Board {
-        Board::new(
-            100,
-            HashMap::from([
-                // snakes go down
-                (27, 5),
-                (40, 3),
-                (43, 18),
-                (54, 31),
-                (66, 45),
-                (76, 58),
-                (89, 53),
-                (99, 41),
-                // ladders go up
-                (4, 25),
-                (13, 46),
-                (33, 49),
-                (42, 63),
-                (50, 69),
-                (62, 81),
-                (74, 92),
-            ]),
-        )
-    }
-
-    #[test]
-    fn test_roll() {
-        // Check can move forwards
-        let mut sim = Sim::new(blank_board(20), Box::new(Unrollable {}));
-        assert_eq!(sim.position, 0);
-        sim.roll_resolve(5);
-        assert_eq!(sim.position, 5);
-        sim.roll_resolve(1);
-        assert_eq!(sim.position, 6);
-        sim.roll_resolve(9999); // Should choke due to hitting end of board
-        assert_eq!(sim.position, 6);
-        assert!(!sim.has_won());
-        sim.roll_resolve(14); // Perfect roll!
-        assert_eq!(sim.position, 20); // End of board
-        assert!(sim.has_won()); // Won
-        sim.roll_resolve(1);
-        assert_eq!(sim.position, 20); // No further moves possible
-    }
-
-    #[test]
-    fn test_random_roll() {
-        // Check can generate a random move
-        let max_rolls = 10; // 10 times is good enough
-        let board = blank_board(max_rolls * DIE_SIZE); // Make a big enough board
-        let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
-        for _ in 0..max_rolls {
-            let old_position = sim.position;
-            let result = sim.roll();
-            println!("Rolled a {}", result.die_value); // Maybe useful for debugging
-            assert!(1 <= result.die_value, "{}", result.die_value);
-            assert!(result.die_value <= DIE_SIZE, "{}", result.die_value);
-            assert_eq!(sim.position, old_position + result.die_value);
+        fn blank_board(size: usize) -> Board {
+            Board::new(size, HashMap::new())
         }
-    }
-    #[test]
-    fn test_lucky_spaces() {
-        // If rules for luck changes, should replace this with checking rolls.
-        let board = Board::new(20, HashMap::from([(5, 8), (14, 2)]));
-        let sim = Sim::new(board, Box::new(Unrollable{}));
-        assert_eq!(
-            sim.lucky_spaces,
-            HashSet::from([
-                5, // Ladders up
-                12, 13, 15, 16, // near a snake
-                20  // Winning square
-            ])
-        );
-        assert_eq!(sim.unlucky_spaces, HashSet::from([14]));
-    }
 
-    #[test]
-    fn test_canon_board_speedrun() {
-        // More fun than useful!
-        // Can probably be deleted if the canon_board changes
-        let b = get_canon_board();
-        let rng = Box::new(MockDie {
-            queued_results: vec![2, 6, 5, 1, 2, 6, 4],
-        });
-        let mut sim = Sim::new(b, rng);
-        sim.run();
-        assert_eq!(sim.roll_count, 7);
-        assert_eq!(sim.turn_count, 5);
-        assert_eq!(sim.climb_count, 4);
-        assert_eq!(sim.slide_count, 0);
-        assert_eq!(sim.climb_distance, 74);
-        assert_eq!(sim.slide_distance, 0);
-        assert_eq!(sim.biggest_climb, 21);
-        assert_eq!(sim.biggest_slide, 0);
-        assert_eq!(sim.lucky_rolls, 6);
-        assert_eq!(sim.unlucky_rolls, 0);
-        assert!(sim.has_won());
-    }
+        fn get_canon_board() -> Board {
+            Board::new(
+                100,
+                HashMap::from([
+                    // snakes go down
+                    (27, 5),
+                    (40, 3),
+                    (43, 18),
+                    (54, 31),
+                    (66, 45),
+                    (76, 58),
+                    (89, 53),
+                    (99, 41),
+                    // ladders go up
+                    (4, 25),
+                    (13, 46),
+                    (33, 49),
+                    (42, 63),
+                    (50, 69),
+                    (62, 81),
+                    (74, 92),
+                ]),
+            )
+        }
 
-    #[test]
-    fn test_chained_slides() {
-        // Take one step forwards and fall down a chain of snakes
-        // then re-roll and go down another snake
-        let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]));
-        let rng = Box::new(MockDie {
-            queued_results: vec![3, 6],
-        });
-        let mut sim = Sim::new(b, rng);
-        sim.position = 93; // Override position
-        sim.turn();
-        assert_eq!(sim.roll_count, 2);
-        assert_eq!(sim.turn_count, 1);
-        assert_eq!(sim.climb_count, 0);
-        assert_eq!(sim.slide_count, 4);
-        assert_eq!(sim.climb_distance, 0);
-        assert_eq!(sim.slide_distance, 101);
-        assert_eq!(sim.biggest_climb, 0);
-        assert_eq!(sim.biggest_slide, 101);
-        assert_eq!(sim.lucky_rolls, 0);
-        assert_eq!(sim.unlucky_rolls, 2);
-        assert_eq!(sim.longest_turn, vec![6, 3]);
-        assert!(!sim.has_won());
+        #[test]
+        fn test_roll() {
+            // Check can move forwards
+            let mut sim = Sim::new(blank_board(20), Box::new(Unrollable {}));
+            assert_eq!(sim.position, 0);
+            sim.roll_resolve(5);
+            assert_eq!(sim.position, 5);
+            sim.roll_resolve(1);
+            assert_eq!(sim.position, 6);
+            sim.roll_resolve(9999); // Should choke due to hitting end of board
+            assert_eq!(sim.position, 6);
+            assert!(!sim.has_won());
+            sim.roll_resolve(14); // Perfect roll!
+            assert_eq!(sim.position, 20); // End of board
+            assert!(sim.has_won()); // Won
+            sim.roll_resolve(1);
+            assert_eq!(sim.position, 20); // No further moves possible
+        }
+
+        #[test]
+        fn test_random_roll() {
+            // Check can generate a random move
+            let max_rolls = 10; // 10 times is good enough
+            let board = blank_board(max_rolls * DIE_SIZE); // Make a big enough board
+            let mut sim = Sim::new(board.clone(), Box::new(rand::thread_rng()));
+            for _ in 0..max_rolls {
+                let old_position = sim.position;
+                let result = sim.roll();
+                println!("Rolled a {}", result.die_value); // Maybe useful for debugging
+                assert!(1 <= result.die_value, "{}", result.die_value);
+                assert!(result.die_value <= DIE_SIZE, "{}", result.die_value);
+                assert_eq!(sim.position, old_position + result.die_value);
+            }
+        }
+
+        #[test]
+        fn test_lucky_spaces() {
+            // If rules for luck changes, should replace this with checking rolls.
+            let board = Board::new(20, HashMap::from([(5, 8), (14, 2)]));
+            let sim = Sim::new(board, Box::new(Unrollable {}));
+            assert_eq!(
+                sim.lucky_spaces,
+                HashSet::from([
+                    5, // Ladders up
+                    12, 13, 15, 16, // near a snake
+                    20  // Winning square
+                ])
+            );
+            assert_eq!(sim.unlucky_spaces, HashSet::from([14]));
+        }
+
+        #[test]
+        fn test_canon_board_speedrun() {
+            // More fun than useful!
+            // Can probably be deleted if the canon_board changes
+            let b = get_canon_board();
+            let rng = Box::new(MockDie {
+                queued_results: vec![2, 6, 5, 1, 2, 6, 4],
+            });
+            let mut sim = Sim::new(b, rng);
+            sim.run();
+            assert_eq!(sim.roll_count, 7);
+            assert_eq!(sim.turn_count, 5);
+            assert_eq!(sim.climb_count, 4);
+            assert_eq!(sim.slide_count, 0);
+            assert_eq!(sim.climb_distance, 74);
+            assert_eq!(sim.slide_distance, 0);
+            assert_eq!(sim.biggest_climb, 21);
+            assert_eq!(sim.biggest_slide, 0);
+            assert_eq!(sim.lucky_rolls, 6);
+            assert_eq!(sim.unlucky_rolls, 0);
+            assert!(sim.has_won());
+        }
+
+        #[test]
+        fn test_chained_slides() {
+            // Take one step forwards and fall down a chain of snakes
+            // then re-roll and go down another snake
+            let b = Board::new(100, HashMap::from([(99, 60), (60, 30), (30, 2), (5, 1)]));
+            let rng = Box::new(MockDie {
+                queued_results: vec![3, 6],
+            });
+            let mut sim = Sim::new(b, rng);
+            sim.position = 93; // Override position
+            sim.turn();
+            assert_eq!(sim.roll_count, 2);
+            assert_eq!(sim.turn_count, 1);
+            assert_eq!(sim.climb_count, 0);
+            assert_eq!(sim.slide_count, 4);
+            assert_eq!(sim.climb_distance, 0);
+            assert_eq!(sim.slide_distance, 101);
+            assert_eq!(sim.biggest_climb, 0);
+            assert_eq!(sim.biggest_slide, 101);
+            assert_eq!(sim.lucky_rolls, 0);
+            assert_eq!(sim.unlucky_rolls, 2);
+            assert_eq!(sim.longest_turn, vec![6, 3]);
+            assert!(!sim.has_won());
+        }
     }
 }
 
