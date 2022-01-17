@@ -398,7 +398,7 @@ mod tests_sim {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct MultiSimResult {
     min_rolls: usize,
     avg_rolls: f64,
@@ -420,6 +420,41 @@ struct MultiSimResult {
     max_unlucky_rolls: usize,
 }
 
+impl MultiSimResult {
+    fn from_sims(sims: &Vec<Sim>) -> MultiSimResult {
+        let (min_rolls, avg_rolls, max_rolls) =
+            min_avg_max(sims.iter().map(|s| s.roll_count).collect()).unwrap();
+        let (min_climb, avg_climb, max_climb) =
+            min_avg_max(sims.iter().map(|s| s.climb_distance).collect()).unwrap();
+        let (min_slide, avg_slide, max_slide) =
+            min_avg_max(sims.iter().map(|s| s.slide_distance).collect()).unwrap();
+        let (min_lucky_rolls, avg_lucky_rolls, max_lucky_rolls) =
+            min_avg_max(sims.iter().map(|s| s.lucky_rolls).collect()).unwrap();
+        let (min_unlucky_rolls, avg_unlucky_rolls, max_unlucky_rolls) =
+            min_avg_max(sims.iter().map(|s| s.unlucky_rolls).collect()).unwrap();
+        MultiSimResult {
+            min_rolls,
+            avg_rolls,
+            max_rolls,
+            min_climb,
+            avg_climb,
+            max_climb,
+            min_slide,
+            avg_slide,
+            max_slide,
+            biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
+            biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
+            longest_turn: sims.iter().map(|s| s.longest_turn.clone()).max().unwrap(),
+            min_lucky_rolls,
+            avg_lucky_rolls,
+            max_lucky_rolls,
+            min_unlucky_rolls,
+            avg_unlucky_rolls,
+            max_unlucky_rolls,
+        }
+    }
+}
+
 fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
     if sequence.is_empty() {
         None
@@ -435,12 +470,43 @@ fn min_avg_max(sequence: Vec<usize>) -> Option<(usize, f64, usize)> {
 #[cfg(test)]
 mod tests_stats {
     use super::*;
+    use crate::dice::Unrollable;
     #[test]
     fn test_min_max_average() {
         assert!(min_avg_max(vec![]).is_none());
         assert_eq!(min_avg_max(vec![5]).unwrap(), (5, 5.0, 5));
         assert_eq!(min_avg_max(vec![8, 0, 3]).unwrap(), (0, 11.0 / 3.0, 8));
         assert_eq!(min_avg_max(vec![1, 2, 3]).unwrap(), (1, 2.0, 3));
+    }
+    #[test]
+    fn test_empty_multi_sim_result() {
+        let b = Board::new(100, HashMap::new());
+        let rng = Box::new(Unrollable {});
+        let sim = Sim::new(b, rng);
+        let result: MultiSimResult = MultiSimResult::from_sims(&vec![sim]);
+        assert_eq!(
+            result,
+            MultiSimResult {
+                min_rolls: 0,
+                avg_rolls: 0.0,
+                max_rolls: 0,
+                min_climb: 0,
+                avg_climb: 0.0,
+                max_climb: 0,
+                min_slide: 0,
+                avg_slide: 0.0,
+                max_slide: 0,
+                biggest_turn_climb: 0,
+                biggest_turn_slide: 0,
+                longest_turn: vec![],
+                min_lucky_rolls: 0,
+                avg_lucky_rolls: 0.0,
+                max_lucky_rolls: 0,
+                min_unlucky_rolls: 0,
+                avg_unlucky_rolls: 0.0,
+                max_unlucky_rolls: 0
+            }
+        )
     }
 }
 
@@ -452,36 +518,7 @@ fn run_sim_batch(board: Board, count: usize) -> MultiSimResult {
         //println!("Turns: {}, Rolls: {}", sim.turn_count, sim.roll_count);
         sims.push(sim);
     }
-    let (min_rolls, avg_rolls, max_rolls) =
-        min_avg_max(sims.iter().map(|s| s.roll_count).collect()).unwrap();
-    let (min_climb, avg_climb, max_climb) =
-        min_avg_max(sims.iter().map(|s| s.climb_distance).collect()).unwrap();
-    let (min_slide, avg_slide, max_slide) =
-        min_avg_max(sims.iter().map(|s| s.slide_distance).collect()).unwrap();
-    let (min_lucky_rolls, avg_lucky_rolls, max_lucky_rolls) =
-        min_avg_max(sims.iter().map(|s| s.lucky_rolls).collect()).unwrap();
-    let (min_unlucky_rolls, avg_unlucky_rolls, max_unlucky_rolls) =
-        min_avg_max(sims.iter().map(|s| s.unlucky_rolls).collect()).unwrap();
-    MultiSimResult {
-        min_rolls,
-        avg_rolls,
-        max_rolls,
-        min_climb,
-        avg_climb,
-        max_climb,
-        min_slide,
-        avg_slide,
-        max_slide,
-        biggest_turn_climb: sims.iter().map(|s| s.biggest_climb).max().unwrap(),
-        biggest_turn_slide: sims.iter().map(|s| s.biggest_slide).max().unwrap(),
-        longest_turn: sims.iter().map(|s| s.longest_turn.clone()).max().unwrap(),
-        min_lucky_rolls,
-        avg_lucky_rolls,
-        max_lucky_rolls,
-        min_unlucky_rolls,
-        avg_unlucky_rolls,
-        max_unlucky_rolls,
-    }
+    MultiSimResult::from_sims(&sims)
 }
 
 fn main() {
