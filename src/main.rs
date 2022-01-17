@@ -4,60 +4,24 @@ use crate::boards::Board;
 use crate::dice::{Roll, DIE_SIZE};
 use crate::BadRouteError::BadRoute;
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
-use std::collections::HashMap;
+use std::cmp::{max, Ordering};
+use std::collections::{HashMap, HashSet};
 use std::{fmt, fs};
 
 mod boards {
-    use std::cmp::Ordering;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     #[derive(Debug, Clone)]
     pub struct Board {
         pub size: usize,
         pub(crate) routes: HashMap<usize, usize>, // Snakes AND Ladders in Source: Destination order
-        pub lucky_spaces: HashSet<usize>,
-        pub unlucky_spaces: HashSet<usize>,
     }
 
     impl Board {
         pub fn new(size: usize, routes: HashMap<usize, usize>) -> Board {
-            // Pre-calculate (un)lucky spaces
-            let mut lucky_spaces: HashSet<usize> = HashSet::new();
-            let mut unlucky_spaces: HashSet<usize> = HashSet::new();
-            for i in 0..size {
-                // lucky or unlucky if ladder or snake.
-                match routes.get(&i).unwrap_or(&i).cmp(&i) {
-                    Ordering::Greater => {
-                        lucky_spaces.insert(i);
-                    }
-                    Ordering::Less => {
-                        unlucky_spaces.insert(i);
-                    }
-                    Ordering::Equal => {}
-                }
-                // Check for snake near-miss
-                for delta in [-2, -1, 1, 2] {
-                    let other_i = i as isize + delta;
-                    if other_i <= 0 {
-                        continue; // Underflow, so ignore
-                    }
-                    let other_i = other_i as usize;
-                    let route_outcome = *routes.get(&other_i).unwrap_or(&other_i);
-                    if route_outcome < other_i {
-                        // Rolled onto a position that was next to a snake leading downwards
-                        lucky_spaces.insert(i);
-                        break;
-                    }
-                }
-            }
-            // Finally, the winning space is lucky
-            lucky_spaces.insert(size);
             Board {
                 size,
                 routes,
-                lucky_spaces,
-                unlucky_spaces,
             }
         }
     }
@@ -137,6 +101,8 @@ struct Sim {
     board: Board,
     position: usize,
     rng: Box<dyn Roll>,
+    lucky_spaces: HashSet<usize>,
+    unlucky_spaces: HashSet<usize>,
     // stats
     turn_count: usize,
     roll_count: usize,
@@ -159,10 +125,45 @@ struct RollResult {
 
 impl Sim {
     fn new(board: Board, rng: Box<dyn Roll>) -> Sim {
+
+        // Pre-calculate (un)lucky spaces
+        let mut lucky_spaces: HashSet<usize> = HashSet::new();
+        let mut unlucky_spaces: HashSet<usize> = HashSet::new();
+        for i in 0..board.size {
+            // lucky or unlucky if ladder or snake.
+            match board.routes.get(&i).unwrap_or(&i).cmp(&i) {
+                Ordering::Greater => {
+                    lucky_spaces.insert(i);
+                }
+                Ordering::Less => {
+                    unlucky_spaces.insert(i);
+                }
+                Ordering::Equal => {}
+            }
+            // Check for snake near-miss
+            for delta in [-2, -1, 1, 2] {
+                let other_i = i as isize + delta;
+                if other_i <= 0 {
+                    continue; // Underflow, so ignore
+                }
+                let other_i = other_i as usize;
+                let route_outcome = *board.routes.get(&other_i).unwrap_or(&other_i);
+                if route_outcome < other_i {
+                    // Rolled onto a position that was next to a snake leading downwards
+                    lucky_spaces.insert(i);
+                    break;
+                }
+            }
+        }
+        // Finally, the winning space is lucky
+        lucky_spaces.insert(board.size);
+
         Sim {
             board,
             position: 0,
             rng,
+            lucky_spaces,
+            unlucky_spaces,
             turn_count: 0,
             roll_count: 0,
             climb_count: 0,
@@ -257,11 +258,11 @@ impl Sim {
         self.position = slid_position;
 
         // (un)Lucky if landing on an (un)lucky space
-        if self.board.unlucky_spaces.contains(&rolled_position) {
+        if self.unlucky_spaces.contains(&rolled_position) {
             // Note "unlucky" trumps lucky.
             // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
             self.unlucky_rolls += 1
-        } else if self.board.lucky_spaces.contains(&rolled_position) {
+        } else if self.lucky_spaces.contains(&rolled_position) {
             self.lucky_rolls += 1
         }
         RollResult {
@@ -343,16 +344,18 @@ mod tests_sim {
     }
     #[test]
     fn test_lucky_spaces() {
+        // If rules for luck changes, should replace this with checking rolls.
         let board = Board::new(20, HashMap::from([(5, 8), (14, 2)]));
+        let sim = Sim::new(board, Box::new(Unrollable{}));
         assert_eq!(
-            board.lucky_spaces,
+            sim.lucky_spaces,
             HashSet::from([
                 5, // Ladders up
                 12, 13, 15, 16, // near a snake
                 20  // Winning square
             ])
         );
-        assert_eq!(board.unlucky_spaces, HashSet::from([14]));
+        assert_eq!(sim.unlucky_spaces, HashSet::from([14]));
     }
 
     #[test]
