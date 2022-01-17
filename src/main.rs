@@ -258,11 +258,11 @@ impl Sim {
         self.position = slid_position;
 
         // (un)Lucky if landing on an (un)lucky space
-        if self.unlucky_spaces.contains(&rolled_position) {
+        if self.is_unlucky_roll(&rolled_position) {
             // Note "unlucky" trumps lucky.
             // If you miss a snake (lucky) and land on another (unlucky) that feels unlucky
             self.unlucky_rolls += 1
-        } else if self.lucky_spaces.contains(&rolled_position) {
+        } else if self.is_lucky_roll(&rolled_position) {
             self.lucky_rolls += 1
         }
         RollResult {
@@ -270,6 +270,16 @@ impl Sim {
             climb_distance,
             slide_distance,
         }
+    }
+
+    fn is_lucky_roll(&self, rolled_position: &usize) -> bool {
+        // We are lucky if we land in a rolled position
+        self.lucky_spaces.contains(rolled_position)
+    }
+
+    fn is_unlucky_roll(&self, rolled_position: &usize) -> bool {
+        // We are unlucky if we land in a rolled position
+        self.unlucky_spaces.contains(rolled_position)
     }
 }
 
