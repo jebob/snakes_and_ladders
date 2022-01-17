@@ -441,7 +441,7 @@ struct MultiSimResult {
 }
 
 impl MultiSimResult {
-    fn from_sims(sims: &Vec<Sim>) -> MultiSimResult {
+    fn from_sims(sims: &[Sim]) -> MultiSimResult {
         let (min_rolls, avg_rolls, max_rolls) =
             min_avg_max(sims.iter().map(|s| s.roll_count).collect()).unwrap();
         let (min_climb, avg_climb, max_climb) =
